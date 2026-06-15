@@ -1,6 +1,9 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import monitoringRouter from './routes/monitoring.js';
 import portalAuthRouter from './routes/portal-auth.js';
@@ -22,6 +25,17 @@ app.use('/api/monitoring', monitoringRouter);
 app.use('/api/portal/auth', portalAuthRouter);
 app.use('/api/portal/orgs', orgsRouter);
 app.use('/api/portal/monitoring', portalMonitoringRouter);
+
+// Single-service deploy: serve the built portal (frontend/dist) and SPA-fallback
+// non-API routes to index.html. Skipped in dev where Vite serves the frontend.
+const clientDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
+if (fs.existsSync(clientDir)) {
+  app.use(express.static(clientDir));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(clientDir, 'index.html'));
+  });
+}
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {

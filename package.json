@@ -1,0 +1,13 @@
+{
+  "name": "techlogic-productivity-system",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm --prefix frontend ci && npm --prefix frontend run build && npm --prefix backend ci && npm --prefix backend exec -- prisma generate",
+    "start": "npm --prefix backend exec -- prisma db push && node backend/prisma/seed-monitoring.js && node backend/prisma/portal-bootstrap.js && node backend/src/index.js"
+  }
+}
