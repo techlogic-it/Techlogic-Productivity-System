@@ -83,10 +83,13 @@ portal share `https://productivity.techlogicservices.co.uk`). Config is in
 The start command runs `prisma db push` plus the idempotent seeds (app catalogue +
 provider admin) on every deploy.
 
-> **Agent download in production:** `/api/monitoring/agent-download` serves a prebuilt
-> Windows exe from `AGENT_EXE_PATH`. The Linux build can't compile it, so host the
-> `win-x64` exe (e.g. a GitHub release) and point `AGENT_EXE_PATH` at it, or run the
-> agent with the `--server … --key …` command shown in the portal.
+> **Agent download in production:** build the `win-x64` exe once
+> (`cd agent-windows && dotnet publish -c Release -r win-x64 -o publish`), upload
+> `ProductivityAgent.exe` to a **GitHub release** in this repo, and set
+> `AGENT_DOWNLOAD_URL` to its asset URL (e.g.
+> `https://github.com/techlogic-it/Techlogic-Productivity-System/releases/latest/download/ProductivityAgent.exe`).
+> `/api/monitoring/agent-download` then 302-redirects there, so the one-click
+> installer works in production. (Locally it streams the exe from `AGENT_EXE_PATH`.)
 
 ## Notes
 - Schema changes use `prisma db push` (no migrations): `npm run db:push`.

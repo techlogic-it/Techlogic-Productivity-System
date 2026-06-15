@@ -93,13 +93,19 @@ router.post('/enroll', asyncHandler(async (req, res) => {
 // Unauthenticated: the per-company install.bat (which carries the enrolment key)
 // fetches it on a fresh machine. The exe itself is not a secret. Override the
 // location with AGENT_EXE_PATH; defaults to the local publish output in dev.
+// Where the installer fetches the agent exe. In production (Linux/Railway can't
+// compile a Windows exe) set AGENT_DOWNLOAD_URL to a hosted binary — e.g. a GitHub
+// release asset — and we 302 there (the installer's PowerShell + GitHub both follow
+// redirects). Locally, stream the prebuilt exe from disk via AGENT_EXE_PATH.
+const AGENT_DOWNLOAD_URL = process.env.AGENT_DOWNLOAD_URL || null;
 const AGENT_EXE_PATH =
   process.env.AGENT_EXE_PATH ||
   path.join(process.cwd(), '..', 'agent-windows', 'publish', 'ProductivityAgent.exe');
 
 router.get('/agent-download', (req, res) => {
+  if (AGENT_DOWNLOAD_URL) return res.redirect(302, AGENT_DOWNLOAD_URL);
   if (!fs.existsSync(AGENT_EXE_PATH)) {
-    return res.status(404).json({ error: 'Agent binary not available on this server (set AGENT_EXE_PATH).' });
+    return res.status(404).json({ error: 'Agent binary not available (set AGENT_DOWNLOAD_URL or AGENT_EXE_PATH).' });
   }
   res.setHeader('Content-Type', 'application/octet-stream');
   res.setHeader('Content-Disposition', 'attachment; filename="ProductivityAgent.exe"');
