@@ -15,5 +15,8 @@ cmds = [
   "cd backend && npx prisma generate",
 ]
 
+# db push + seeds are best-effort (|| true) so a DB/seed hiccup never stops the
+# server from booting — the health check then passes and the real error shows in
+# the deploy logs instead of a silent crash-loop.
 [start]
-cmd = "cd backend && npx prisma db push && node prisma/seed-monitoring.js && node prisma/portal-bootstrap.js && node src/index.js"
+cmd = "cd backend && (npx prisma db push || true) && (node prisma/seed-monitoring.js || true) && (node prisma/portal-bootstrap.js || true) && node src/index.js"
