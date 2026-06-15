@@ -387,8 +387,11 @@ function buildInstallerBat({ serverUrl, key, exeUrl }) {
     'taskkill /F /IM ProductivityAgent.exe >nul 2>&1',
     'if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"',
     '',
-    'echo Downloading agent...',
-    `powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -Uri '%EXEURL%' -OutFile '%INSTALL_DIR%\\ProductivityAgent.exe' -UseBasicParsing } catch { Write-Host $_.Exception.Message; exit 1 }"`,
+    'echo Downloading agent (this is a ~70MB download, please wait)...',
+    // curl.exe (Windows 10 1803+) is fast and follows the redirect to the release.
+    // Fall back to Invoke-WebRequest with the progress bar OFF — leaving it on makes
+    // large downloads crawl (PowerShell renders the bar per chunk).
+    `where curl.exe >nul 2>&1 && curl.exe -L -f -s -S -o "%INSTALL_DIR%\\ProductivityAgent.exe" "%EXEURL%" || powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; try { Invoke-WebRequest -Uri '%EXEURL%' -OutFile '%INSTALL_DIR%\\ProductivityAgent.exe' -UseBasicParsing } catch { Write-Host $_.Exception.Message; exit 1 }"`,
     'if not exist "%INSTALL_DIR%\\ProductivityAgent.exe" ( echo Download failed - check the server URL and your connection. & pause & exit /b 1 )',
     '',
     'echo Registering autostart...',
