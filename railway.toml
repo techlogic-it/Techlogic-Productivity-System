@@ -1,11 +1,10 @@
 # Single Railway service: builds the portal (frontend) + backend, then the backend
 # serves the portal AND the API on one domain (productivity.techlogicservices.co.uk).
+# Build/install/start phases live in nixpacks.toml (which also forces a Node-only
+# build so the C# agent doesn't trigger a .NET build).
 [build]
 builder = "nixpacks"
-buildCommand = "npm --prefix frontend ci && npm --prefix frontend run build && npm --prefix backend ci && npm --prefix backend exec -- prisma generate"
 
 [deploy]
-# db push keeps the schema in sync; seeds are idempotent (app catalogue + provider admin).
-startCommand = "npm --prefix backend exec -- prisma db push && node backend/prisma/seed-monitoring.js && node backend/prisma/portal-bootstrap.js && node backend/src/index.js"
 healthcheckPath = "/api/health"
 restartPolicyType = "on_failure"

@@ -1,0 +1,19 @@
+# Node-only build. The C# agent (agent-windows/*.csproj) is built separately on
+# Windows — without this, nixpacks auto-detects .NET and a stray `dotnet restore`
+# fails the build.
+providers = ["node"]
+
+[phases.install]
+cmds = [
+  "npm --prefix frontend ci",
+  "npm --prefix backend ci",
+]
+
+[phases.build]
+cmds = [
+  "npm --prefix frontend run build",
+  "cd backend && npx prisma generate",
+]
+
+[start]
+cmd = "cd backend && npx prisma db push && node prisma/seed-monitoring.js && node prisma/portal-bootstrap.js && node src/index.js"
