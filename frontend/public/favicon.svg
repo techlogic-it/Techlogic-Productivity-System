@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Outer circle -->
+  <circle cx="50" cy="50" r="46" fill="none" stroke="#1a1a1a" stroke-width="3.5"/>
+
+  <!-- Navy blue top horizontal bar -->
+  <line x1="24" y1="24" x2="66" y2="24" stroke="#2339a8" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="24" cy="24" r="3.5" fill="none" stroke="#2339a8" stroke-width="2.5"/>
+  <circle cx="66" cy="24" r="3.5" fill="none" stroke="#2339a8" stroke-width="2.5"/>
+
+  <!-- Short connectors from navy endpoints down to teal bar -->
+  <line x1="24" y1="24" x2="18" y2="33" stroke="#2339a8" stroke-width="3" stroke-linecap="round"/>
+  <line x1="66" y1="24" x2="72" y2="33" stroke="#1aada0" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Teal second horizontal bar -->
+  <line x1="18" y1="33" x2="72" y2="33" stroke="#1aada0" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="18" cy="33" r="3.5" fill="none" stroke="#1aada0" stroke-width="2.5"/>
+  <circle cx="72" cy="33" r="3.5" fill="none" stroke="#1aada0" stroke-width="2.5"/>
+
+  <!-- Left teal stem -->
+  <line x1="30" y1="33" x2="30" y2="58" stroke="#1aada0" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="30" cy="58" r="3.5" fill="none" stroke="#1aada0" stroke-width="2.5"/>
+
+  <!-- Right teal stem -->
+  <line x1="60" y1="33" x2="60" y2="58" stroke="#1aada0" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="60" cy="58" r="3.5" fill="none" stroke="#1aada0" stroke-width="2.5"/>
+
+  <!-- Centre navy stem (long, from top bar down) -->
+  <line x1="43" y1="24" x2="43" y2="80" stroke="#2339a8" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="43" cy="80" r="3.5" fill="none" stroke="#2339a8" stroke-width="2.5"/>
+</svg>

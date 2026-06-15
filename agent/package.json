@@ -1,0 +1,16 @@
+{
+  "name": "productivity-agent-reference",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Cross-platform REFERENCE agent for the productivity monitoring product. Proves the enrol→capture→ingest protocol end-to-end. The production Windows agent is a C#/.NET port (see README).",
+  "bin": {
+    "productivity-agent": "src/agent.js"
+  },
+  "scripts": {
+    "start": "node src/agent.js",
+    "enroll": "node src/agent.js --once"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

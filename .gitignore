@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Environment files - NEVER commit these
+.env
+.env.local
+.env.production
+frontend/.env
+backend/.env
+
+# Build output
+frontend/dist/
+backend/dist/
+
+# .NET agent build output
+agent-windows/bin/
+agent-windows/obj/
+agent-windows/publish/
+agent/dist/
+
+# Agent runtime state (per-machine; contains the device token — never commit)
+agent.state.json
+agent.spool.jsonl
+**/agent.state.json
+**/agent.spool.jsonl
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+
+# Prisma
+backend/prisma/dev.db

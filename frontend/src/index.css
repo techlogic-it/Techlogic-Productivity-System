@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Smooth scrollbar for the main content area */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ─── Dark mode ──────────────────────────────────────────────────────────
+   System-wide theme via a `.dark` class on <html>. Rather than adding dark:
+   variants to every component, we remap the common neutral utility classes
+   here so the whole app flips. `.dark .x` out-specifies the base `.x` utility. */
+.dark {
+  color-scheme: dark;
+}
+.dark body {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+
+/* Surfaces */
+.dark .bg-white { background-color: #1e293b !important; }
+.dark .bg-gray-50 { background-color: #0f172a !important; }
+.dark .bg-gray-100 { background-color: #334155 !important; }
+.dark .bg-gray-200 { background-color: #334155 !important; }
+
+/* Text */
+.dark .text-gray-900 { color: #f1f5f9 !important; }
+.dark .text-gray-800 { color: #e2e8f0 !important; }
+.dark .text-gray-700 { color: #cbd5e1 !important; }
+.dark .text-gray-600 { color: #cbd5e1 !important; }
+.dark .text-gray-500 { color: #94a3b8 !important; }
+.dark .text-gray-400 { color: #64748b !important; }
+.dark .text-gray-300 { color: #475569 !important; }
+
+/* Borders + dividers */
+.dark .border-gray-200 { border-color: #334155 !important; }
+.dark .border-gray-300 { border-color: #475569 !important; }
+.dark .border-gray-100 { border-color: #1e293b !important; }
+.dark .divide-gray-200 > * { border-color: #334155 !important; }
+.dark .divide-gray-100 > * { border-color: #1e293b !important; }
+
+/* Hover surfaces */
+.dark .hover\:bg-gray-50:hover { background-color: #334155 !important; }
+.dark .hover\:bg-gray-100:hover { background-color: #475569 !important; }
+
+/* Native form controls */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #1e293b;
+  color: #f1f5f9;
+  border-color: #475569;
+}
+.dark ::placeholder { color: #64748b; }
+
+/* StatCard / badge colour tints — soften the very light -50 backgrounds */
+.dark .bg-blue-50 { background-color: rgba(37, 99, 235, 0.15) !important; }
+.dark .bg-green-50 { background-color: rgba(22, 163, 74, 0.15) !important; }
+.dark .bg-yellow-50 { background-color: rgba(202, 138, 4, 0.15) !important; }
+.dark .bg-purple-50 { background-color: rgba(147, 51, 234, 0.15) !important; }
+.dark .bg-red-50 { background-color: rgba(220, 38, 38, 0.15) !important; }
+.dark .bg-teal-50 { background-color: rgba(13, 148, 136, 0.15) !important; }
+.dark .text-blue-700 { color: #93c5fd !important; }
+.dark .text-green-700 { color: #86efac !important; }
+.dark .text-yellow-700 { color: #fde047 !important; }
+.dark .text-purple-700 { color: #d8b4fe !important; }
+.dark .text-red-700 { color: #fca5a5 !important; }
+.dark .text-teal-700 { color: #5eead4 !important; }
+.dark .border-blue-200 { border-color: rgba(37, 99, 235, 0.3) !important; }
+.dark .border-green-200 { border-color: rgba(22, 163, 74, 0.3) !important; }
+.dark .border-yellow-200 { border-color: rgba(202, 138, 4, 0.3) !important; }
+.dark .border-purple-200 { border-color: rgba(147, 51, 234, 0.3) !important; }
+.dark .border-red-200 { border-color: rgba(220, 38, 38, 0.3) !important; }
+.dark .border-teal-200 { border-color: rgba(13, 148, 136, 0.3) !important; }
+
+/* Dark scrollbar */
+.dark ::-webkit-scrollbar-track { background: #1e293b; }
+.dark ::-webkit-scrollbar-thumb { background: #475569; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #64748b; }

@@ -1,0 +1,29 @@
+{
+  "name": "techlogic-productivity-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "prisma generate && node src/index.js",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "db:seed:apps": "node prisma/seed-monitoring.js",
+    "db:bootstrap": "node prisma/portal-bootstrap.js",
+    "db:seed:demo": "node prisma/seed-portal-demo.js",
+    "db:setup": "prisma db push && node prisma/seed-monitoring.js && node prisma/portal-bootstrap.js && node prisma/seed-portal-demo.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-async-handler": "^1.2.0",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4",
+    "prisma": "^5.22.0"
+  }
+}

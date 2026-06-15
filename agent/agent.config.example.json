@@ -1,0 +1,14 @@
+{
+  "serverUrl": "https://monitor.example.com",
+  "enrollmentKey": "PASTE-PER-GROUP-ENROLMENT-KEY-HERE",
+  "claimCode": null,
+
+  "_comment": "serverUrl + enrollmentKey are provisioned at install. Use a per-GROUP key so captured users default into the right group. Set claimCode for an assigned laptop you pre-created a named person for. statePath/spoolPath and policy are optional overrides.",
+
+  "policy": {
+    "sampleIntervalSec": 5,
+    "uploadIntervalSec": 60,
+    "idleThresholdSec": 300,
+    "collectWindowTitles": true
+  }
+}

@@ -1,0 +1,367 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PortalRole {
+  PROVIDER_ADMIN // Techlogic â€” manages all organisations
+  ORG_ADMIN // client org admin â€” sees the whole org, manages users + settings
+  MANAGER // company-wide: views all reports + manages staff, no user/settings admin
+  GROUP_ADMIN // sees ONLY their group's reports
+  VIEWER // read-only, scoped like its group/org
+}
+
+enum ClaimStatus {
+  PENDING // claim code issued, not yet redeemed by an install
+  CLAIMED // bound to a specific install via claim code
+  UNMAPPED // captured from the OS account, awaiting admin mapping
+}
+
+// The tenant: a client company that uses the product.
+model Organisation {
+  id         String    @id @default(uuid())
+  name       String
+  slug       String    @unique
+  status     String    @default("ACTIVE") // ACTIVE | SUSPENDED
+  // Tenant detail captured at company creation.
+  address      String?
+  phone        String?
+  email        String?
+  website      String?
+  contactName  String? // key person
+  contactEmail String?
+  contactPhone String?
+  // Optional link to the MSP Customer record for internal cross-sell/billing.
+  customerId String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  groups         Group[]
+  portalUsers    PortalUser[]
+  enrollmentKeys EnrollmentKey[]
+  devices        MonitoredDevice[]
+  employees      MonitoredEmployee[]
+  setting        MonitoringSetting?
+  appOverrides   OrgAppClassification[]
+  titleRules     OrgTitleRule[]
+}
+
+// A team/department within an org. The unit of GROUP_ADMIN scoping.
+model Group {
+  id             String       @id @default(uuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  name           String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  portalUsers PortalUser[]
+  employees   MonitoredEmployee[]
+
+  @@unique([organisationId, name])
+}
+
+// Dashboard login identity for the product. Email + password (hashed), invite-
+// based. Kept separate from the Entra-bound `User` so the product is decoupled.
+model PortalUser {
+  id              String        @id @default(uuid())
+  organisationId  String? // null only for PROVIDER_ADMIN
+  organisation    Organisation? @relation(fields: [organisationId], references: [id])
+  groupId         String? // set for GROUP_ADMIN / group-scoped VIEWER
+  group           Group?        @relation(fields: [groupId], references: [id])
+  email           String        @unique
+  passwordHash    String? // null until the invite is accepted
+  name            String
+  role            PortalRole    @default(VIEWER)
+  isActive        Boolean       @default(true)
+  // Single-use invite / password-reset token (SHA-256 hash stored, never raw).
+  inviteTokenHash String?       @unique
+  inviteExpiresAt DateTime?
+  invitedAt       DateTime?
+  passwordSetAt   DateTime?
+  lastLoginAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  accessLogs MonitoringAccessLog[]
+}
+
+// Per-org install key â€” replaces the single global MONITORING_ENROLLMENT_SECRET.
+// The agent installer carries this; it binds a device to an Organisation (and an
+// optional default Group). Only the SHA-256 hash is stored.
+model EnrollmentKey {
+  id             String       @id @default(uuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  defaultGroupId String?
+  keyHash        String       @unique
+  keyCipher      String?      // AES-256-GCM ciphertext of the raw key, so the company key can be re-displayed
+  isPrimary      Boolean      @default(false) // the single canonical key shown for the company
+  label          String
+  isActive       Boolean      @default(true)
+  expiresAt      DateTime?
+  createdAt      DateTime     @default(now())
+}
+
+// Productivity monitoring (Windows agent â†’ activity analytics)
+// Scenario B: monitors Techlogic's own staff. customerId is optional/null now,
+// reserved for a future productised per-customer build. See
+// docs/productivity-monitoring-plan.md.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+enum AppCategory {
+  PRODUCTIVE
+  COMMUNICATION
+  DEVELOPMENT
+  ADMIN_BACKOFFICE
+  RMM_SUPPORT
+  RESEARCH
+  SOCIAL
+  ENTERTAINMENT
+  UNCATEGORISED
+  BLOCKED_HIGH_RISK
+}
+
+enum ProductivityWeight {
+  PRODUCTIVE
+  NEUTRAL
+  NON_PRODUCTIVE
+}
+
+enum SessionEventType {
+  LOGIN
+  LOGOUT
+  LOCK
+  UNLOCK
+}
+
+enum AgentDeviceStatus {
+  ACTIVE
+  DISABLED
+  RETIRED
+}
+
+// One laptop running the agent. In the product build it belongs to an
+// Organisation (set at enrolment from the EnrollmentKey); customerId stays for
+// the internal MSP correlation.
+model MonitoredDevice {
+  id             String            @id @default(uuid())
+  organisationId String?
+  organisation   Organisation?     @relation(fields: [organisationId], references: [id])
+  // Copied from the EnrollmentKey at enrol time; auto-groups captured employees.
+  defaultGroupId String?
+  customerId     String?
+  deviceName     String
+  entraDeviceId  String?           @unique
+  azureTenantId  String?
+  status         AgentDeviceStatus @default(ACTIVE)
+  agentVersion   String?
+  // Only the SHA-256 hash of the agent token is stored, never the token itself.
+  agentTokenHash String?           @unique
+  enrolledAt     DateTime          @default(now())
+  lastSeenAt     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  employees     MonitoredEmployee[] @relation("DeviceEmployees")
+  events        ActivityEvent[]
+  sessionEvents SessionEvent[]
+  summaries     ActivitySummary[]
+}
+
+// A monitored person. Kept separate from User; userId optionally links to the
+// dashboard User so monitoring correlates with engineer-productivity features.
+// Product identity is the tenant-scoped (organisationId, localAccountKey) pair â€”
+// localAccountKey is the Windows SID (fallback username) reported by the agent.
+// entraUserId is retained only for the internal Entra-based build.
+model MonitoredEmployee {
+  id              String           @id @default(uuid())
+  organisationId  String?
+  organisation    Organisation?    @relation(fields: [organisationId], references: [id])
+  groupId         String?
+  group           Group?           @relation(fields: [groupId], references: [id])
+  customerId      String?
+  userId          String?
+  // Optional "primary device" association; events also carry their own deviceId.
+  primaryDeviceId String?
+  primaryDevice   MonitoredDevice? @relation("DeviceEmployees", fields: [primaryDeviceId], references: [id])
+  localAccountKey String?
+  claimCode       String?          @unique
+  claimStatus     ClaimStatus      @default(UNMAPPED)
+  entraUserId     String?          @unique
+  upn             String?
+  displayName     String?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  events        ActivityEvent[]
+  sessionEvents SessionEvent[]
+  summaries     ActivitySummary[]
+
+  @@unique([organisationId, localAccountKey])
+}
+
+// Admin-editable catalogue: process name â†’ category + productivity weight.
+model MonitoredApp {
+  id          String             @id @default(uuid())
+  processName String             @unique // match key, e.g. "OUTLOOK.EXE" (stored upper-case)
+  displayName String
+  category    AppCategory        @default(UNCATEGORISED)
+  weight      ProductivityWeight @default(NEUTRAL)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  events ActivityEvent[]
+}
+
+// Per-company override of an app's category/weight. Layered ON TOP of the global
+// MonitoredApp catalogue â€” present here â‡’ wins for that company; absent â‡’ global.
+model OrgAppClassification {
+  id             String             @id @default(uuid())
+  organisationId String
+  organisation   Organisation       @relation(fields: [organisationId], references: [id])
+  processName    String // upper-case match key, e.g. "MSEDGE.EXE"
+  displayName    String?
+  category       AppCategory        @default(UNCATEGORISED)
+  weight         ProductivityWeight @default(NEUTRAL)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([organisationId, processName])
+}
+
+// Per-company window-title rule (e.g. "youtube" â†’ ENTERTAINMENT). Company rules
+// win over the global TitleRule defaults.
+model OrgTitleRule {
+  id             String             @id @default(uuid())
+  organisationId String
+  organisation   Organisation       @relation(fields: [organisationId], references: [id])
+  keyword        String // lower-case
+  category       AppCategory        @default(SOCIAL)
+  weight         ProductivityWeight @default(NON_PRODUCTIVE)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([organisationId, keyword])
+}
+
+// Raw foreground-usage interval â€” the high-volume table.
+model ActivityEvent {
+  id            String            @id @default(uuid())
+  deviceId      String
+  device        MonitoredDevice   @relation(fields: [deviceId], references: [id])
+  employeeId    String
+  employee      MonitoredEmployee @relation(fields: [employeeId], references: [id])
+  appId         String?
+  app           MonitoredApp?     @relation(fields: [appId], references: [id])
+  processName   String // denormalised, for unmatched apps
+  windowTitle   String? // collected (policy on); privacy-sensitive
+  startTime     DateTime
+  endTime       DateTime
+  durationSec   Int
+  isIdle        Boolean           @default(false)
+  clientEventId String            @unique // agent-assigned UUID for idempotent uploads
+  createdAt     DateTime          @default(now())
+
+  @@index([deviceId, startTime])
+  @@index([employeeId, startTime])
+}
+
+model SessionEvent {
+  id            String            @id @default(uuid())
+  deviceId      String
+  device        MonitoredDevice   @relation(fields: [deviceId], references: [id])
+  employeeId    String
+  employee      MonitoredEmployee @relation(fields: [employeeId], references: [id])
+  type          SessionEventType
+  occurredAt    DateTime
+  clientEventId String            @unique
+  createdAt     DateTime          @default(now())
+
+  @@index([deviceId, occurredAt])
+}
+
+// Pre-aggregated per-employee-per-day rollup that powers the dashboard.
+model ActivitySummary {
+  id                    String            @id @default(uuid())
+  organisationId        String?
+  groupId               String?
+  customerId            String?
+  employeeId            String
+  employee              MonitoredEmployee @relation(fields: [employeeId], references: [id])
+  deviceId              String?
+  device                MonitoredDevice?  @relation(fields: [deviceId], references: [id])
+  summaryDate           DateTime // UTC midnight of the day
+  // active/idle/productive etc. are counted WITHIN office hours; overtimeSec is
+  // active time outside office hours (evenings/weekends). Productivity % is
+  // productiveSec / activeSec, i.e. office hours only.
+  activeSec             Int               @default(0)
+  idleSec               Int               @default(0)
+  productiveSec         Int               @default(0)
+  neutralSec            Int               @default(0)
+  nonProductiveSec      Int               @default(0)
+  // overtimeSec = all active time outside office hours; overtimeProductiveSec is
+  // the productive-weighted slice of it (so leisure after hours isn't "work").
+  overtimeSec           Int               @default(0)
+  overtimeProductiveSec Int               @default(0)
+  byCategory            Json? // { PRODUCTIVE: 1234, SOCIAL: 56, ... }
+  topApps               Json? // [{ processName, displayName, sec }]
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  @@unique([employeeId, summaryDate])
+  @@index([customerId, summaryDate])
+  @@index([organisationId, summaryDate])
+  @@index([groupId, summaryDate])
+}
+
+// Tamper-evident log of who viewed/exported monitoring data (ICO requirement).
+// The actor is an internal User (MSP build) OR a PortalUser (product build).
+model MonitoringAccessLog {
+  id               String      @id @default(uuid())
+  userId           String?
+  portalUserId     String?
+  portalUser       PortalUser? @relation(fields: [portalUserId], references: [id])
+  action           String // VIEW_EMPLOYEE | VIEW_TIMELINE | EXPORT_CSV ...
+  organisationId   String?
+  customerId       String?
+  targetEmployeeId String?
+  meta             Json?
+  createdAt        DateTime    @default(now())
+
+  @@index([userId, createdAt])
+  @@index([portalUserId, createdAt])
+}
+
+// Config for the monitoring module. Office hours drive the productive-vs-overtime
+// split in the rollup. Per-organisation in the product build; the internal build
+// keeps a single row (organisationId null â†’ the "singleton" id default).
+model MonitoringSetting {
+  id             String        @id @default("singleton")
+  organisationId String?       @unique
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
+  officeStart    String        @default("08:00") // "HH:mm", local to `timezone`
+  officeEnd      String        @default("18:00")
+  workingDays    String        @default("1,2,3,4,5") // comma-separated, 1=Mon â€¦ 7=Sun
+  timezone       String        @default("Europe/London") // IANA tz name
+  updatedAt      DateTime      @updatedAt
+}
+
+// Keyword rules matched (case-insensitive substring) against the window/page
+// title, to classify browser-based activity (e.g. "youtube") that the
+// process-name catalogue can't distinguish. Override the app catalogue UNLESS
+// the app is already marked PRODUCTIVE (avoids flagging dev work whose file name
+// happens to contain a keyword).
+model TitleRule {
+  id        String             @id @default(uuid())
+  keyword   String             @unique // stored lower-case
+  category  AppCategory        @default(ENTERTAINMENT)
+  weight    ProductivityWeight @default(NON_PRODUCTIVE)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+}

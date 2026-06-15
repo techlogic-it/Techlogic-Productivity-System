@@ -1,0 +1,5 @@
+# Runtime state + provisioned secrets — never commit
+agent.config.json
+agent.state.json
+agent.spool.jsonl
+node_modules/
