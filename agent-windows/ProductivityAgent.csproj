@@ -14,6 +14,8 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- Reflection-based System.Text.Json is used, so do NOT trim. -->
     <PublishTrimmed>false</PublishTrimmed>
+    <!-- Compress the bundled assemblies to roughly halve the download size. -->
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
 </Project>
