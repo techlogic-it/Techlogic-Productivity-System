@@ -470,10 +470,12 @@ router.post(
       },
     });
     // The invitee sets their password via POST /api/portal/auth/accept-invite.
-    // TODO(Phase 3): email the token; until then it's returned in dev only.
+    // No email transport yet, so always return the token: the admin copies the
+    // invite link from the portal and delivers it. Single-use, 7-day expiry, and
+    // only its hash is stored.
     res.status(201).json({
       user: publicPortalUser(user),
-      ...(process.env.NODE_ENV !== 'production' ? { inviteToken: token } : {}),
+      inviteToken: token,
     });
   }),
 );
