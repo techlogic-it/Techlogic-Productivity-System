@@ -495,6 +495,32 @@ router.get(
   }),
 );
 
+// (Re)issue an invite for an existing user — fresh single-use token so the admin
+// can copy the link again (e.g. the first link was missed, or it expired).
+router.post(
+  '/organisations/:id/users/:userId/invite',
+  requirePortalRole('ORG_ADMIN'),
+  asyncHandler(async (req, res) => {
+    if (!canAccessOrg(req.portalUser, req.params.id)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const user = await prisma.portalUser.findFirst({
+      where: { id: req.params.userId, organisationId: req.params.id },
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const token = generateInviteToken();
+    await prisma.portalUser.update({
+      where: { id: user.id },
+      data: {
+        inviteTokenHash: hashInviteToken(token),
+        inviteExpiresAt: new Date(Date.now() + INVITE_TTL_MS),
+        invitedAt: new Date(),
+      },
+    });
+    res.json({ user: publicPortalUser(user), inviteToken: token });
+  }),
+);
+
 // ── Employees + claim codes (Path A: pre-create a named user, hand out a code) ─
 
 router.post(

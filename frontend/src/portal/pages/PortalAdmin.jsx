@@ -134,6 +134,11 @@ export default function PortalAdmin() {
     }
     loadOrg();
   };
+  const resendInvite = async (u) => {
+    const { data } = await portalApi.post(`/orgs/organisations/${orgId}/users/${u.id}/invite`);
+    const link = `${window.location.origin}/portal/accept-invite?token=${data.inviteToken}`;
+    setSecret({ label: `Invite link for ${u.email} — send it so they set a password`, value: link });
+  };
   const regenerateKey = async () => {
     if (!window.confirm('Regenerate the company key? The current key stops working immediately and any installer using it must be updated.')) return;
     const { data } = await portalApi.post(`/orgs/organisations/${orgId}/enrollment-key/regenerate`);
@@ -317,6 +322,11 @@ export default function PortalAdmin() {
                 <td className="py-2 text-gray-500">{u.email}</td>
                 <td className="py-2 text-gray-600">{ROLE_LABEL[u.role] || u.role}</td>
                 <td className="py-2 text-right text-xs text-gray-400">{u.passwordSetAt ? 'active' : 'invited'}</td>
+                <td className="py-2 text-right">
+                  {!u.passwordSetAt && (
+                    <button onClick={() => resendInvite(u)} className="text-xs text-teal-700 hover:underline">Copy invite link</button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
