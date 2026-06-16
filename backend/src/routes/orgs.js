@@ -554,6 +554,52 @@ router.get(
   }),
 );
 
+// Edit a user: change role (e.g. promote a department manager to Admin),
+// department, name, or active state.
+router.patch(
+  '/organisations/:id/users/:userId',
+  requirePortalRole('ORG_ADMIN'),
+  asyncHandler(async (req, res) => {
+    if (!canAccessOrg(req.portalUser, req.params.id)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const user = await prisma.portalUser.findFirst({
+      where: { id: req.params.userId, organisationId: req.params.id },
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const data = {};
+    if (req.body?.name !== undefined) {
+      const n = String(req.body.name).trim();
+      if (n) data.name = n;
+    }
+    const role = req.body?.role !== undefined ? String(req.body.role) : user.role;
+    if (req.body?.role !== undefined) {
+      if (!ASSIGNABLE_ROLES.includes(role)) {
+        return res.status(400).json({ error: `role must be one of ${ASSIGNABLE_ROLES.join(', ')}` });
+      }
+      data.role = role;
+    }
+    // Resolve the department for the (possibly new) role.
+    if (req.body?.role !== undefined || req.body?.groupId !== undefined) {
+      let groupId = role === 'ORG_ADMIN' || role === 'MANAGER' ? null : (req.body?.groupId ?? user.groupId ?? null);
+      if (role === 'GROUP_ADMIN' && !groupId) {
+        return res.status(400).json({ error: 'A Department Manager needs a department' });
+      }
+      if (groupId) {
+        const g = await prisma.group.findFirst({ where: { id: groupId, organisationId: req.params.id } });
+        if (!g) return res.status(400).json({ error: 'Department is not in this company' });
+      }
+      data.groupId = groupId;
+    }
+    if (req.body?.isActive !== undefined) data.isActive = !!req.body.isActive;
+    if (Object.keys(data).length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+    const updated = await prisma.portalUser.update({ where: { id: user.id }, data });
+    res.json(publicPortalUser(updated));
+  }),
+);
+
 // (Re)issue an invite for an existing user — fresh single-use token so the admin
 // can copy the link again (e.g. the first link was missed, or it expired).
 router.post(

@@ -57,6 +57,8 @@ export default function PortalAdmin() {
   const [detailsMsg, setDetailsMsg] = useState('');
   const [newDept, setNewDept] = useState({ name: '', managerName: '', managerEmail: '' });
   const [invite, setInvite] = useState({ email: '', name: '', role: 'VIEWER', groupId: '' });
+  const [editUser, setEditUser] = useState(null);
+  const [editForm, setEditForm] = useState({ name: '', role: 'VIEWER', groupId: '' });
 
   const loadOrgs = useCallback(async () => {
     const r = await portalApi.get('/orgs/organisations');
@@ -148,6 +150,15 @@ export default function PortalAdmin() {
     const { data } = await portalApi.post(`/orgs/organisations/${orgId}/users/${u.id}/invite`);
     const link = `${window.location.origin}/portal/accept-invite?token=${data.inviteToken}`;
     setSecret({ label: `Invite link for ${u.email} — send it so they set a password`, value: link });
+  };
+  const startEditUser = (u) => { setEditUser(u); setEditForm({ name: u.name || '', role: u.role, groupId: u.groupId || '' }); };
+  const saveUser = async () => {
+    try {
+      await portalApi.patch(`/orgs/organisations/${orgId}/users/${editUser.id}`, {
+        name: editForm.name, role: editForm.role, groupId: editForm.groupId || null,
+      });
+      setEditUser(null); loadOrg();
+    } catch (e) { alert(e.response?.data?.error || 'Could not save'); }
   };
   const regenerateKey = async () => {
     if (!window.confirm('Regenerate the company key?\n\nThe current key stops working IMMEDIATELY. Every installer (.bat) already handed out for this company will stop being able to enrol new machines until you re-issue it. Already-enrolled agents keep working.\n\nAre you sure?')) return;
@@ -359,10 +370,11 @@ export default function PortalAdmin() {
                 <td className="py-2 text-gray-500">{u.email}</td>
                 <td className="py-2 text-gray-600">{ROLE_LABEL[u.role] || u.role}</td>
                 <td className="py-2 text-right text-xs text-gray-400">{u.passwordSetAt ? 'active' : 'invited'}</td>
-                <td className="py-2 text-right">
+                <td className="py-2 text-right whitespace-nowrap">
                   {!u.passwordSetAt && (
-                    <button onClick={() => resendInvite(u)} className="text-xs text-teal-700 hover:underline">Copy invite link</button>
+                    <button onClick={() => resendInvite(u)} className="text-xs text-teal-700 hover:underline mr-3">Copy invite link</button>
                   )}
+                  <button onClick={() => startEditUser(u)} className="text-xs text-gray-600 hover:underline">Edit</button>
                 </td>
               </tr>
             ))}
@@ -405,6 +417,34 @@ export default function PortalAdmin() {
           </div>
         )}
       </Section>
+
+      {editUser && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4" onClick={() => setEditUser(null)}>
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-5" onClick={(ev) => ev.stopPropagation()}>
+            <div className="font-semibold text-gray-800 mb-1">Edit user</div>
+            <div className="text-xs text-gray-500 mb-3">{editUser.email}</div>
+            <label className="block text-sm text-gray-600 mb-1">Name</label>
+            <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className={`${input} w-full mb-3`} />
+            <label className="block text-sm text-gray-600 mb-1">Role</label>
+            <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} className={`${input} w-full mb-3`}>
+              {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+            {(editForm.role === 'GROUP_ADMIN' || editForm.role === 'VIEWER') && (
+              <>
+                <label className="block text-sm text-gray-600 mb-1">Department</label>
+                <select value={editForm.groupId} onChange={(e) => setEditForm({ ...editForm, groupId: e.target.value })} className={`${input} w-full mb-4`}>
+                  <option value="">{editForm.role === 'GROUP_ADMIN' ? 'Select department…' : 'Whole company'}</option>
+                  {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              </>
+            )}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEditUser(null)} className="px-3 py-1.5 text-sm text-gray-600">Cancel</button>
+              <button onClick={saveUser} disabled={editForm.role === 'GROUP_ADMIN' && !editForm.groupId} className="px-3 py-1.5 text-sm rounded-lg bg-teal-600 disabled:opacity-50 text-white">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
