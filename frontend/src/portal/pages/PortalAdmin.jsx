@@ -129,29 +129,37 @@ export default function PortalAdmin() {
   };
   const addDepartment = async () => {
     if (!newDept.name.trim()) return;
-    const { data: dept } = await portalApi.post(`/orgs/organisations/${orgId}/groups`, { name: newDept.name.trim() });
-    // Optionally invite a department manager (scoped to this department only).
-    if (newDept.managerName.trim() && newDept.managerEmail.trim()) {
-      const { data } = await portalApi.post(`/orgs/organisations/${orgId}/users`, {
-        name: newDept.managerName.trim(), email: newDept.managerEmail.trim(), role: 'GROUP_ADMIN', groupId: dept.id,
-      });
-      if (data.inviteToken) {
-        const link = `${window.location.origin}/portal/accept-invite?token=${data.inviteToken}`;
-        setSecret({ label: `Invite link for ${data.user.email} — manager of "${dept.name}", send it so they set a password`, value: link });
+    try {
+      const { data: dept } = await portalApi.post(`/orgs/organisations/${orgId}/groups`, { name: newDept.name.trim() });
+      // Optionally invite a department manager (scoped to this department only).
+      if (newDept.managerName.trim() && newDept.managerEmail.trim()) {
+        const { data } = await portalApi.post(`/orgs/organisations/${orgId}/users`, {
+          name: newDept.managerName.trim(), email: newDept.managerEmail.trim(), role: 'GROUP_ADMIN', groupId: dept.id,
+        });
+        if (data.inviteToken) {
+          const link = `${window.location.origin}/portal/accept-invite?token=${data.inviteToken}`;
+          setSecret({ label: `Invite link for ${data.user.email} — manager of "${dept.name}", send it so they set a password`, value: link });
+        }
       }
+      setNewDept({ name: '', managerName: '', managerEmail: '' });
+      loadOrg();
+    } catch (e) {
+      alert(e.response?.data?.error || 'Could not create the department.');
     }
-    setNewDept({ name: '', managerName: '', managerEmail: '' });
-    loadOrg();
   };
   const sendInvite = async () => {
     if (!invite.email || !invite.name) return;
-    const { data } = await portalApi.post(`/orgs/organisations/${orgId}/users`, invite);
-    setInvite({ email: '', name: '', role: 'VIEWER', groupId: '' });
-    if (data.inviteToken) {
-      const link = `${window.location.origin}/portal/accept-invite?token=${data.inviteToken}`;
-      setSecret({ label: `Invite link for ${data.user.email} — send it so they set a password`, value: link });
+    try {
+      const { data } = await portalApi.post(`/orgs/organisations/${orgId}/users`, invite);
+      setInvite({ email: '', name: '', role: 'VIEWER', groupId: '' });
+      if (data.inviteToken) {
+        const link = `${window.location.origin}/portal/accept-invite?token=${data.inviteToken}`;
+        setSecret({ label: `Invite link for ${data.user.email} — send it so they set a password`, value: link });
+      }
+      loadOrg();
+    } catch (e) {
+      alert(e.response?.data?.error || 'Could not invite this user.');
     }
-    loadOrg();
   };
   const resendInvite = async (u) => {
     const { data } = await portalApi.post(`/orgs/organisations/${orgId}/users/${u.id}/invite`);

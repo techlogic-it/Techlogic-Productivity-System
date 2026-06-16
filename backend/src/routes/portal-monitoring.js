@@ -137,7 +137,11 @@ router.get(
     if (req.query.claimStatus) where.claimStatus = req.query.claimStatus;
     const employees = await prisma.monitoredEmployee.findMany({
       where,
-      include: { group: { select: { id: true, name: true } } },
+      include: {
+        group: { select: { id: true, name: true } },
+        organisation: { select: { id: true, name: true } },
+        primaryDevice: { select: { enrolledAt: true, lastSeenAt: true, deviceName: true } },
+      },
       orderBy: { displayName: 'asc' },
     });
     res.json(employees);

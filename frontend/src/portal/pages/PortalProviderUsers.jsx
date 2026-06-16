@@ -147,11 +147,14 @@ export default function PortalProviderUsers() {
           ) : (
             <div className="mb-3 text-xs text-gray-500">Provider Admins reach every company automatically.</div>
           )}
-          <button
-            onClick={create}
-            disabled={!form.name.trim() || !form.email.trim() || (form.role !== 'PROVIDER_ADMIN' && form.organisationIds.length === 0)}
-            className="rounded-lg bg-teal-600 disabled:opacity-50 text-white px-4 py-2 text-sm"
-          >Create &amp; get invite link</button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={create}
+              disabled={!form.name.trim() || !form.email.trim() || (form.role !== 'PROVIDER_ADMIN' && form.organisationIds.length === 0)}
+              className="rounded-lg bg-teal-600 disabled:opacity-50 text-white px-4 py-2 text-sm"
+            >Create &amp; get invite link</button>
+            {error && <span className="text-red-600 text-sm">{error}</span>}
+          </div>
         </Section>
       )}
 
