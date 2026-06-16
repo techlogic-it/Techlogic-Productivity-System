@@ -9,8 +9,9 @@ import { Resend } from 'resend';
 const { RESEND_API_KEY, MAIL_FROM } = process.env;
 
 export const emailConfigured = !!RESEND_API_KEY;
-// Any address on the verified domain works; override with MAIL_FROM if wanted.
-const FROM = MAIL_FROM || 'Techlogic Productivity <no-reply@techlogicservices.co.uk>';
+// This product's own sending identity (its own subdomain — independent of the
+// CRM). Verify productivity.techlogicservices.co.uk in Resend. Override via MAIL_FROM.
+const FROM = MAIL_FROM || 'Techlogic Productivity <no-reply@productivity.techlogicservices.co.uk>';
 
 let client = null;
 function getClient() {
