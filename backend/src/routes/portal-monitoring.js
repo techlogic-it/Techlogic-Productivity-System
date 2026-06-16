@@ -412,6 +412,14 @@ router.patch(
       data,
       include: { group: { select: { id: true, name: true } } },
     });
+    // Removing a user retires their device too, so an uninstalled / removed laptop
+    // drops out of the active-device count.
+    if (data.isActive === false && target.primaryDeviceId) {
+      await prisma.monitoredDevice.updateMany({
+        where: { id: target.primaryDeviceId, ...deviceWhere(req.portalUser) },
+        data: { status: 'DISABLED' },
+      });
+    }
     await logAccess(req.portalUser, 'MAP_EMPLOYEE', { targetEmployeeId: employee.id, meta: { groupId: employee.groupId } });
     res.json(employee);
   }),

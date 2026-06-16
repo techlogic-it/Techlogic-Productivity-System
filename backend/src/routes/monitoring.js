@@ -282,4 +282,17 @@ router.post('/ingest', authenticateAgent, asyncHandler(async (req, res) => {
   res.json({ acceptedEvents: act.count, acceptedSessionEvents: sess.count });
 }));
 
+// POST /api/monitoring/retire â€” the uninstaller calls this (with the device token)
+// so an uninstalled machine drops out of the portal: the device is disabled and
+// the user(s) primarily on it are deactivated (freeing their licence seat).
+router.post('/retire', authenticateAgent, asyncHandler(async (req, res) => {
+  const device = req.device;
+  await prisma.monitoredDevice.update({ where: { id: device.id }, data: { status: 'DISABLED' } });
+  await prisma.monitoredEmployee.updateMany({
+    where: { primaryDeviceId: device.id, isActive: true },
+    data: { isActive: false },
+  });
+  res.json({ ok: true });
+}));
+
 export default router;

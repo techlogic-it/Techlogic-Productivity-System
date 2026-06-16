@@ -428,9 +428,10 @@ function buildInstallerBat({ serverUrl, key, exeUrl }) {
   return lines.join('\r\n') + '\r\n';
 }
 
-// Silent per-user uninstaller — stop the agent, remove the autostart, delete the
-// install folder. Generic (no company data needed).
-function buildUninstallerBat() {
+// Silent per-user uninstaller — stop the agent, retire it on the server (so the
+// machine drops out of the portal), remove the autostart, delete the install folder.
+function buildUninstallerBat({ serverUrl }) {
+  const stateFile = '%LOCALAPPDATA%\\TechlogicProductivity\\agent.state.json';
   const lines = [
     '@echo off',
     'rem ===== Techlogic Productivity System - SILENT uninstaller (per user) =====',
@@ -442,6 +443,8 @@ function buildUninstallerBat() {
     ':uninstall',
     'setlocal',
     'taskkill /F /IM ProductivityAgent.exe >nul 2>&1',
+    'rem Best-effort: tell the server to retire this device (uses the stored token).',
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $s = Get-Content '${stateFile}' -Raw | ConvertFrom-Json; if ($s.AgentToken) { Invoke-RestMethod -Uri '${serverUrl}/api/monitoring/retire' -Method Post -Headers @{ Authorization = 'Bearer ' + $s.AgentToken } -TimeoutSec 20 | Out-Null } } catch {}"`,
     'del "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\TechlogicProductivity.vbs" >nul 2>&1',
     'rmdir /S /Q "%LOCALAPPDATA%\\TechlogicProductivity" >nul 2>&1',
     'del "%TEMP%\\tps-uninstall.vbs" >nul 2>&1',
@@ -479,7 +482,7 @@ router.get(
     }
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Disposition', 'attachment; filename="uninstall-techlogic-productivity.bat"');
-    res.send(buildUninstallerBat());
+    res.send(buildUninstallerBat({ serverUrl: serverUrlFrom(req) }));
   }),
 );
 

@@ -49,7 +49,7 @@ export default function PortalEmployees() {
 
   // Remove frees a licence seat (their PC stops being monitored); restore takes one.
   const setActive = async (e, isActive) => {
-    if (!isActive && !window.confirm(`Remove "${e.displayName || e.localAccountKey}" from monitoring? This frees a licence seat and their PC stops being monitored.`)) return;
+    if (!isActive && !window.confirm(`Remove "${e.displayName || e.localAccountKey}" from monitoring? This drops their device from the system, frees a licence seat, and stops monitoring that PC.`)) return;
     try {
       await portalApi.patch(`/monitoring/employees/${e.id}`, { isActive });
       load();
