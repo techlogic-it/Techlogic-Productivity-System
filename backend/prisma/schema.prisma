@@ -379,6 +379,12 @@ model MonitoringSetting {
   // use the global default (MON_IDLE_THRESHOLD_SEC, 300). Delivered to the agent
   // via /config; takes effect on its next config poll.
   idleThresholdSec Int?
+  // Email digests (productivity summaries) for this company's admins + managers.
+  dailyDigest        Boolean  @default(false)
+  weeklyDigest       Boolean  @default(false)
+  digestRecipients   String?  // optional extra recipients, comma-separated emails
+  dailyDigestSentOn  String?  // org-local "YYYY-MM-DD" of the last daily send (de-dupe)
+  weeklyDigestSentOn String?  // org-local Monday "YYYY-MM-DD" of the last weekly send
   updatedAt      DateTime      @updatedAt
 }
 

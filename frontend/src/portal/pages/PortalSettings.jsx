@@ -71,6 +71,26 @@ export default function PortalSettings() {
       setS(data); setMsg('Saved');
     } catch (e) { setError(e.response?.data?.error || 'Failed to save'); }
   };
+  const saveNotifications = async () => {
+    setMsg(''); setError('');
+    try {
+      const { data } = await portalApi.put(`/monitoring/settings${q}`, {
+        organisationId: orgId || undefined,
+        dailyDigest: !!s.dailyDigest, weeklyDigest: !!s.weeklyDigest, digestRecipients: s.digestRecipients || '',
+      });
+      setS(data); setMsg('Saved');
+    } catch (e) { setError(e.response?.data?.error || 'Failed to save'); }
+  };
+  const [testMsg, setTestMsg] = useState('');
+  const sendTest = async (type) => {
+    setTestMsg('Sending…');
+    try {
+      const { data } = await portalApi.post(`/monitoring/digests/test?type=${type}${orgId ? `&organisationId=${orgId}` : ''}`);
+      setTestMsg(data.mode === 'smtp'
+        ? `Sent a ${type} test to ${data.sentTo}.`
+        : `Rendered a ${type} test to the server log (no email provider connected yet — set SMTP to send for real).`);
+    } catch (e) { setTestMsg(e.response?.data?.error || 'Could not send test'); }
+  };
 
   // ── App categories ──
   const classify = async (processName, displayName, category, weight) => {
@@ -142,6 +162,27 @@ export default function PortalSettings() {
               {msg && <span className="text-green-600 text-sm">{msg}</span>}
               {error && <span className="text-red-600 text-sm">{error}</span>}
             </div>
+          </Card>
+
+          <Card title="Notifications" subtitle="Email productivity digests to this company's admins and managers.">
+            <label className="flex items-center gap-2 text-sm text-gray-700 mb-2">
+              <input type="checkbox" checked={!!s.dailyDigest} onChange={(e) => setS({ ...s, dailyDigest: e.target.checked })} />
+              Daily digest — yesterday's productivity, each morning
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 mb-3">
+              <input type="checkbox" checked={!!s.weeklyDigest} onChange={(e) => setS({ ...s, weeklyDigest: e.target.checked })} />
+              Weekly digest — last week's roundup, Monday mornings
+            </label>
+            <label className="block text-sm text-gray-600 mb-1">Extra recipients (optional, comma-separated)</label>
+            <input value={s.digestRecipients || ''} onChange={(e) => setS({ ...s, digestRecipients: e.target.value })}
+              placeholder="ops@company.com, owner@company.com" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-1" />
+            <p className="text-xs text-gray-400 mb-3">Always goes to this company's active admins &amp; managers; add any extras here. Sent around 07:00 in the company's timezone.</p>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button onClick={saveNotifications} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 text-sm">Save</button>
+              <button onClick={() => sendTest('daily')} className="rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 text-sm">Send test (daily)</button>
+              <button onClick={() => sendTest('weekly')} className="rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 text-sm">Send test (weekly)</button>
+            </div>
+            {testMsg && <p className="text-xs text-gray-500 mt-2">{testMsg}</p>}
           </Card>
 
           <Card title="App categories" subtitle="Mark which apps are productive, social, etc. Changes apply to this company only and recalculate at the next rollup.">

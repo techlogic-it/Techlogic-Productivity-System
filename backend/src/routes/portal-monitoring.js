@@ -14,6 +14,7 @@ import {
   localTimeInfo,
 } from '../lib/monitoring-rollup.js';
 import { generateAgentToken, hashAgentToken } from '../middleware/agent-auth.js';
+import { sendDigest, emailConfigured } from '../lib/digests.js';
 
 const router = Router();
 router.use(authenticatePortal);
@@ -435,7 +436,7 @@ router.put(
     const orgId = targetOrgId(req);
     if (!orgId) return res.status(400).json({ error: 'organisationId is required' });
 
-    const { officeStart, officeEnd, workingDays, timezone, idleThresholdSec } = req.body || {};
+    const { officeStart, officeEnd, workingDays, timezone, idleThresholdSec, dailyDigest, weeklyDigest, digestRecipients } = req.body || {};
     const hhmm = /^([01]?\d|2[0-3]):[0-5]\d$/;
     const data = {};
     if (idleThresholdSec !== undefined) {
@@ -444,6 +445,14 @@ router.put(
         return res.status(400).json({ error: 'Idle timeout must be 30–7200 seconds (or blank for the default).' });
       }
       data.idleThresholdSec = n;
+    }
+    if (dailyDigest !== undefined) data.dailyDigest = !!dailyDigest;
+    if (weeklyDigest !== undefined) data.weeklyDigest = !!weeklyDigest;
+    if (digestRecipients !== undefined) {
+      const cleaned = String(digestRecipients || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const bad = cleaned.find((e) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+      if (bad) return res.status(400).json({ error: `"${bad}" is not a valid email address` });
+      data.digestRecipients = cleaned.join(', ') || null;
     }
     if (officeStart !== undefined) {
       if (!hhmm.test(officeStart)) return res.status(400).json({ error: 'officeStart must be HH:mm' });
@@ -472,6 +481,29 @@ router.put(
       create: { id: crypto.randomUUID(), organisationId: orgId, officeStart: '08:00', officeEnd: '18:00', workingDays: '1,2,3,4,5', timezone: 'Europe/London', ...data },
     });
     res.json(settings);
+  }),
+);
+
+// Send a digest right now to the caller, so they can preview it. ?type=daily|weekly.
+router.post(
+  '/digests/test',
+  requirePortalRole('ORG_ADMIN'),
+  asyncHandler(async (req, res) => {
+    const orgId = targetOrgId(req);
+    if (!orgId) return res.status(400).json({ error: 'organisationId is required' });
+    if (!req.portalUser.email) return res.status(400).json({ error: 'Your account has no email address to send a test to.' });
+    const org = await prisma.organisation.findUnique({ where: { id: orgId }, select: { id: true, name: true } });
+    if (!org) return res.status(404).json({ error: 'Company not found' });
+    const setting = await getMonitoringSettings(orgId);
+    const type = req.query.type === 'weekly' ? 'weekly' : 'daily';
+    const result = await sendDigest({ org, setting, type, to: req.portalUser.email });
+    res.json({
+      ok: true,
+      type,
+      sentTo: req.portalUser.email,
+      emailConfigured,
+      mode: result.mode, // 'smtp' when a provider is wired, 'logmode' until then
+    });
   }),
 );
 

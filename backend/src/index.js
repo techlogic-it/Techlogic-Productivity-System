@@ -10,6 +10,7 @@ import portalAuthRouter from './routes/portal-auth.js';
 import orgsRouter from './routes/orgs.js';
 import portalMonitoringRouter from './routes/portal-monitoring.js';
 import { runMonitoringRollup, runMonitoringRetention } from './lib/monitoring-rollup.js';
+import { runDigests } from './lib/digests.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -61,4 +62,7 @@ app.listen(PORT, () => {
   // Retention sweep daily.
   setTimeout(() => runMonitoringRetention().catch(() => {}), 15000);
   setInterval(() => runMonitoringRetention().catch(() => {}), 24 * 60 * 60 * 1000);
+  // Email digests — tick every 15 min; runDigests sends each company's daily/weekly
+  // digest once, at its local send hour (de-duped via *SentOn markers).
+  setInterval(() => runDigests().catch((e) => console.error('[digests]', e.message)), 15 * 60 * 1000);
 });
