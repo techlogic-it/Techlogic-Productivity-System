@@ -17,6 +17,10 @@ export default function PortalEmployees() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // employee being mapped
   const [form, setForm] = useState({ displayName: '', groupId: '' });
+  const [showRemoved, setShowRemoved] = useState(false);
+
+  const removedCount = employees.filter((e) => e.isActive === false).length;
+  const visible = showRemoved ? employees : employees.filter((e) => e.isActive !== false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,12 +64,20 @@ export default function PortalEmployees() {
 
   return (
     <div className="max-w-5xl">
-      <h1 className="text-xl font-bold text-gray-800 mb-5">People</h1>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-xl font-bold text-gray-800">People</h1>
+        {removedCount > 0 && (
+          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+            <input type="checkbox" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} />
+            Show removed ({removedCount})
+          </label>
+        )}
+      </div>
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         {loading ? (
           <div className="p-6 text-gray-400 text-sm">Loading…</div>
-        ) : employees.length === 0 ? (
-          <div className="p-6 text-gray-400 text-sm">No monitored people yet.</div>
+        ) : visible.length === 0 ? (
+          <div className="p-6 text-gray-400 text-sm">{employees.length === 0 ? 'No monitored people yet.' : 'No active people. Tick “Show removed” to see removed users.'}</div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
@@ -78,7 +90,7 @@ export default function PortalEmployees() {
               </tr>
             </thead>
             <tbody>
-              {employees.map((e) => (
+              {visible.map((e) => (
                 <tr key={e.id} className={`border-t border-gray-100 ${e.isActive === false ? 'opacity-50' : ''}`}>
                   <td className="px-4 py-2 font-medium text-gray-800">{e.displayName || <span className="text-gray-400">Unnamed</span>}</td>
                   <td className="px-4 py-2 text-gray-600">{e.group?.name || '—'}</td>
