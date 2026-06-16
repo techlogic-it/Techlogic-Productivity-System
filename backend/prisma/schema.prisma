@@ -375,6 +375,10 @@ model MonitoringSetting {
   officeEnd      String        @default("18:00")
   workingDays    String        @default("1,2,3,4,5") // comma-separated, 1=Mon â€¦ 7=Sun
   timezone       String        @default("Europe/London") // IANA tz name
+  // Seconds of no keyboard/mouse before the agent flags activity as idle. null =
+  // use the global default (MON_IDLE_THRESHOLD_SEC, 300). Delivered to the agent
+  // via /config; takes effect on its next config poll.
+  idleThresholdSec Int?
   updatedAt      DateTime      @updatedAt
 }
 

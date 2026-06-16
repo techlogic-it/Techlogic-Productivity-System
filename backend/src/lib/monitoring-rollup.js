@@ -140,7 +140,7 @@ export function officeConfig(settings) {
 const WEEKDAY_NUM = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 
 // Local weekday + minutes-since-midnight for an instant, in the office timezone.
-function localTimeInfo(date, timezone) {
+export function localTimeInfo(date, timezone) {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: timezone, hourCycle: 'h23', weekday: 'short', hour: '2-digit', minute: '2-digit',
   }).formatToParts(date);

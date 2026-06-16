@@ -31,6 +31,21 @@ export default function PortalEmployee() {
   const name = day.employees?.[0]?.displayName || events[0]?.employee?.displayName || 'Employee';
   const t = day.total || {};
 
+  // Per-hour activity intensity for the day — active seconds (and the productive
+  // slice) bucketed by the local hour the interval started in.
+  const hourly = useMemo(() => {
+    const b = Array.from({ length: 24 }, () => ({ activeSec: 0, idleSec: 0, prodSec: 0 }));
+    for (const e of events) {
+      const sec = e.durationSec || 0;
+      if (!sec) continue;
+      const h = new Date(e.startTime).getHours();
+      if (e.isIdle) b[h].idleSec += sec;
+      else { b[h].activeSec += sec; if (e.resolvedWeight === 'PRODUCTIVE') b[h].prodSec += sec; }
+    }
+    return b;
+  }, [events]);
+  const hasActivity = hourly.some((h) => h.activeSec > 0);
+
   // Aggregate the day's active events into a per-app/site breakdown.
   const appBreakdown = useMemo(() => {
     const map = new Map();
@@ -84,6 +99,32 @@ export default function PortalEmployee() {
           </div>
         ))}
       </div>
+
+      {!loading && hasActivity && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+          <div className="font-semibold text-gray-700 text-sm mb-3">Activity intensity (by hour)</div>
+          <div className="flex items-end gap-0.5 h-20">
+            {hourly.map((b, h) => {
+              const frac = Math.min(1, b.activeSec / 3600);
+              const prodFrac = b.activeSec ? b.prodSec / b.activeSec : 0;
+              return (
+                <div key={h} className="flex-1 h-full bg-gray-100 rounded-t relative"
+                  title={`${String(h).padStart(2, '0')}:00 — ${fmtDur(b.activeSec)} active${b.idleSec ? `, ${fmtDur(b.idleSec)} idle` : ''}`}>
+                  <div className="absolute bottom-0 left-0 right-0 bg-teal-500 rounded-t" style={{ height: `${frac * 100}%` }}>
+                    <div className="absolute bottom-0 left-0 right-0 bg-green-500" style={{ height: `${prodFrac * 100}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex justify-between text-[10px] text-gray-400 mt-1"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div>
+          <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-green-500 inline-block" /> Productive</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-teal-500 inline-block" /> Active</span>
+            <span className="ml-auto">Bar height = active time that hour (hover for detail)</span>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
         <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-700 text-sm">Apps &amp; sites</div>

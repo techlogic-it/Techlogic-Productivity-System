@@ -66,6 +66,7 @@ export default function PortalSettings() {
       const { data } = await portalApi.put(`/monitoring/settings${q}`, {
         organisationId: orgId || undefined,
         officeStart: s.officeStart, officeEnd: s.officeEnd, workingDays: s.workingDays, timezone: s.timezone,
+        idleThresholdSec: s.idleThresholdSec === '' || s.idleThresholdSec == null ? null : Number(s.idleThresholdSec),
       });
       setS(data); setMsg('Saved');
     } catch (e) { setError(e.response?.data?.error || 'Failed to save'); }
@@ -128,6 +129,14 @@ export default function PortalSettings() {
             </div>
             <label className="block text-sm text-gray-600 mb-1">Timezone</label>
             <input value={s.timezone} onChange={(e) => setS({ ...s, timezone: e.target.value })} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-4" />
+            <label className="block text-sm text-gray-600 mb-1">Idle timeout (minutes)</label>
+            <input
+              type="number" min="1" max="120" placeholder="5 (default)"
+              value={s.idleThresholdSec != null && s.idleThresholdSec !== '' ? Math.round(s.idleThresholdSec / 60) : ''}
+              onChange={(e) => setS({ ...s, idleThresholdSec: e.target.value === '' ? '' : Math.round(Number(e.target.value) * 60) })}
+              className="w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm mb-1"
+            />
+            <p className="text-xs text-gray-400 mb-4">No keyboard/mouse for this long counts as idle (excluded from active/productive). Blank = 5 min default. Applies to each PC on the agent's next config refresh.</p>
             <div className="flex items-center gap-3">
               <button onClick={saveHours} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 text-sm">Save office hours</button>
               {msg && <span className="text-green-600 text-sm">{msg}</span>}

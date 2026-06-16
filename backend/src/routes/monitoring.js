@@ -86,7 +86,7 @@ router.post('/enroll', asyncHandler(async (req, res) => {
       });
 
   // Token is returned exactly once; it cannot be recovered later.
-  res.status(201).json({ deviceId: device.id, agentToken: token, policy: AGENT_POLICY });
+  res.status(201).json({ deviceId: device.id, agentToken: token, policy: await policyForDevice(device) });
 }));
 
 // GET /api/monitoring/agent-download â€” the prebuilt Windows agent binary.
@@ -112,9 +112,23 @@ router.get('/agent-download', (req, res) => {
   fs.createReadStream(AGENT_EXE_PATH).pipe(res);
 });
 
+// Per-org policy: the company can override the idle threshold; everything else is
+// the global default. The agent applies this on its next /config poll.
+async function policyForDevice(device) {
+  const policy = { ...AGENT_POLICY };
+  if (device?.organisationId) {
+    const setting = await prisma.monitoringSetting.findUnique({
+      where: { organisationId: device.organisationId },
+      select: { idleThresholdSec: true },
+    });
+    if (setting?.idleThresholdSec != null) policy.idleThresholdSec = setting.idleThresholdSec;
+  }
+  return policy;
+}
+
 // GET /api/monitoring/config â€” agent pulls current policy.
 router.get('/config', authenticateAgent, asyncHandler(async (req, res) => {
-  res.json({ policy: AGENT_POLICY });
+  res.json({ policy: await policyForDevice(req.device) });
 }));
 
 // Resolve the MonitoredEmployee an ingest batch belongs to. Three paths:

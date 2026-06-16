@@ -10,6 +10,8 @@ import {
   getMonitoringSettings,
   resolveClassification,
   effectiveClassification,
+  officeConfig,
+  localTimeInfo,
 } from '../lib/monitoring-rollup.js';
 import { generateAgentToken, hashAgentToken } from '../middleware/agent-auth.js';
 
@@ -106,6 +108,83 @@ router.get(
       employees: [...perEmployee.values()].map(withPct).sort((a, b) => b.activeSec - a.activeSec),
       days: summaries,
     });
+  }),
+);
+
+// Minutes-since-midnight → "HH:mm".
+function fmtMins(min) {
+  const h = Math.floor(min / 60), m = Math.round(min % 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+// GET /late-report — per-person late-arrival summary over a date range. "Late" =
+// the first activity of a working day starts after the company's office-start.
+router.get(
+  '/late-report',
+  asyncHandler(async (req, res) => {
+    const empWhere = { ...scopeFor(req.portalUser), isActive: true };
+    if (req.query.groupId && ['PROVIDER_ADMIN', 'PROVIDER_SUPPORT', 'ORG_ADMIN', 'MANAGER'].includes(req.portalUser.role)) {
+      empWhere.groupId = req.query.groupId;
+    }
+    const employees = await prisma.monitoredEmployee.findMany({
+      where: empWhere,
+      select: { id: true, displayName: true, upn: true, organisationId: true },
+    });
+    if (employees.length === 0) return res.json({ rows: [] });
+
+    // Date window (default last 7 days), as UTC midnights.
+    const end = req.query.toDate ? dateOnly(req.query.toDate) : dateOnly(new Date());
+    const start = req.query.fromDate ? dateOnly(req.query.fromDate) : new Date(end);
+    if (!req.query.fromDate) start.setUTCDate(start.getUTCDate() - 6);
+    const days = [];
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) days.push(new Date(d));
+    if (days.length === 0 || days.length > 92) return res.status(400).json({ error: 'Pick a range of up to ~3 months.' });
+
+    // Office config per org (cached) — drives office-start, working days, timezone.
+    const cfgCache = new Map();
+    const cfgFor = async (orgId) => {
+      const key = orgId || '__none__';
+      if (!cfgCache.has(key)) cfgCache.set(key, officeConfig(await getMonitoringSettings(orgId)));
+      return cfgCache.get(key);
+    };
+
+    const rows = [];
+    for (const emp of employees) {
+      const cfg = await cfgFor(emp.organisationId);
+      let worked = 0, late = 0, totalLate = 0, worst = 0;
+      const lateDays = [];
+      for (const day of days) {
+        const dayEnd = new Date(day); dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+        const first = await prisma.activityEvent.findFirst({
+          where: { employeeId: emp.id, isIdle: false, startTime: { gte: day, lt: dayEnd } },
+          orderBy: { startTime: 'asc' },
+          select: { startTime: true },
+        });
+        if (!first) continue;
+        const { dayNum, minutesOfDay } = localTimeInfo(first.startTime, cfg.timezone);
+        if (!cfg.days.has(dayNum)) continue; // non-working day → ignore
+        worked += 1;
+        const lateBy = minutesOfDay - cfg.startMin;
+        if (lateBy > 0) {
+          late += 1; totalLate += lateBy; worst = Math.max(worst, lateBy);
+          lateDays.push({ date: day.toISOString().slice(0, 10), arrival: fmtMins(minutesOfDay), lateBy });
+        }
+      }
+      if (worked === 0) continue;
+      rows.push({
+        employeeId: emp.id,
+        displayName: emp.displayName || emp.upn || 'Unnamed',
+        officeStart: fmtMins(cfg.startMin),
+        worked, late,
+        onTimePct: Math.round(((worked - late) / worked) * 100),
+        avgLateMin: late ? Math.round(totalLate / late) : 0,
+        worstLateMin: worst,
+        lateDays,
+      });
+    }
+    rows.sort((a, b) => b.late - a.late || b.avgLateMin - a.avgLateMin);
+    await logAccess(req.portalUser, 'VIEW_LATE_REPORT', {});
+    res.json({ rows });
   }),
 );
 
@@ -356,9 +435,16 @@ router.put(
     const orgId = targetOrgId(req);
     if (!orgId) return res.status(400).json({ error: 'organisationId is required' });
 
-    const { officeStart, officeEnd, workingDays, timezone } = req.body || {};
+    const { officeStart, officeEnd, workingDays, timezone, idleThresholdSec } = req.body || {};
     const hhmm = /^([01]?\d|2[0-3]):[0-5]\d$/;
     const data = {};
+    if (idleThresholdSec !== undefined) {
+      const n = idleThresholdSec === null || idleThresholdSec === '' ? null : Number(idleThresholdSec);
+      if (n !== null && (!Number.isInteger(n) || n < 30 || n > 7200)) {
+        return res.status(400).json({ error: 'Idle timeout must be 30–7200 seconds (or blank for the default).' });
+      }
+      data.idleThresholdSec = n;
+    }
     if (officeStart !== undefined) {
       if (!hhmm.test(officeStart)) return res.status(400).json({ error: 'officeStart must be HH:mm' });
       data.officeStart = officeStart;
