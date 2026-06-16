@@ -52,6 +52,10 @@ router.get(
     const { fromDate, toDate, employeeId } = req.query;
     const where = { ...scopeFor(req.portalUser) };
     if (employeeId) where.employeeId = employeeId;
+    // Department filter — only for company-wide roles (never widens a scoped view).
+    if (req.query.groupId && ['PROVIDER_ADMIN', 'ORG_ADMIN', 'MANAGER'].includes(req.portalUser.role)) {
+      where.groupId = req.query.groupId;
+    }
     if (fromDate || toDate) {
       where.summaryDate = {};
       if (fromDate) where.summaryDate.gte = dateOnly(fromDate);
@@ -181,6 +185,9 @@ router.get(
   asyncHandler(async (req, res) => {
     const { fromDate, toDate } = req.query;
     const where = { ...scopeFor(req.portalUser) };
+    if (req.query.groupId && ['PROVIDER_ADMIN', 'ORG_ADMIN', 'MANAGER'].includes(req.portalUser.role)) {
+      where.groupId = req.query.groupId;
+    }
     if (fromDate || toDate) {
       where.summaryDate = {};
       if (fromDate) where.summaryDate.gte = dateOnly(fromDate);
