@@ -27,6 +27,8 @@ export default function PortalEmployees() {
   const [companyFilter, setCompanyFilter] = useState('');
 
   const isProvider = isProviderRole(user.role);
+  const isReadOnly = user.role === 'PROVIDER_VIEWER'; // can look, never change
+  const editingEmp = employees.find((e) => e.id === editing);
 
   const removedCount = employees.filter((e) => e.isActive === false).length;
   const usedSeats = employees.length - removedCount;
@@ -66,12 +68,16 @@ export default function PortalEmployees() {
   };
 
   const saveMap = async () => {
-    await portalApi.patch(`/monitoring/employees/${editing}`, {
-      displayName: form.displayName,
-      ...(user.role === 'GROUP_ADMIN' ? {} : { groupId: form.groupId || null }),
-    });
-    setEditing(null);
-    load();
+    try {
+      await portalApi.patch(`/monitoring/employees/${editing}`, {
+        displayName: form.displayName,
+        ...(user.role === 'GROUP_ADMIN' ? {} : { groupId: form.groupId || null }),
+      });
+      setEditing(null);
+      load();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Could not save.');
+    }
   };
 
   // Remove frees a licence seat (their PC stops being monitored); restore takes one.
@@ -150,12 +156,12 @@ export default function PortalEmployees() {
                   </td>
                   <td className="px-4 py-2 text-right whitespace-nowrap">
                     {e.isActive === false ? (
-                      <button onClick={() => setActive(e, true)} className="text-teal-700 hover:underline">Restore</button>
+                      !isReadOnly && <button onClick={() => setActive(e, true)} className="text-teal-700 hover:underline">Restore</button>
                     ) : (
                       <>
                         <button onClick={() => navigate(`/portal/employees/${e.id}`)} className="text-teal-700 hover:underline mr-3">View</button>
-                        <button onClick={() => startMap(e)} className="text-gray-600 hover:underline mr-3">Map</button>
-                        <button onClick={() => setActive(e, false)} className="text-red-600 hover:underline">Remove</button>
+                        {!isReadOnly && <button onClick={() => startMap(e)} className="text-gray-600 hover:underline mr-3">{e.claimStatus === 'UNMAPPED' ? 'Map' : 'Edit'}</button>}
+                        {!isReadOnly && <button onClick={() => setActive(e, false)} className="text-red-600 hover:underline">Remove</button>}
                       </>
                     )}
                   </td>
@@ -169,11 +175,11 @@ export default function PortalEmployees() {
       {editing && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4" onClick={() => setEditing(null)}>
           <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-5" onClick={(ev) => ev.stopPropagation()}>
-            <div className="font-semibold text-gray-800 mb-3">Map person</div>
+            <div className="font-semibold text-gray-800 mb-3">{editingEmp?.claimStatus === 'UNMAPPED' ? 'Map person' : 'Edit person'}</div>
             <label className="block text-sm text-gray-600 mb-1">Display name</label>
             <input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })}
               className="w-full mb-3 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-            {user.role !== 'GROUP_ADMIN' && (
+            {user.role !== 'GROUP_ADMIN' && groups.length > 0 && (
               <>
                 <label className="block text-sm text-gray-600 mb-1">Department</label>
                 <select value={form.groupId} onChange={(e) => setForm({ ...form, groupId: e.target.value })}
