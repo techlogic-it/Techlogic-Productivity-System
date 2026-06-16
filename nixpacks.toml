@@ -3,10 +3,14 @@
 # fails the build.
 providers = ["node"]
 
+# NODE_ENV=production is set on the service, which makes `npm ci` skip
+# devDependencies. The frontend build needs vite (a devDependency), so force dev
+# deps in for the build with --include=dev — otherwise `vite build` fails on any
+# fresh (uncached) builder.
 [phases.install]
 cmds = [
-  "npm --prefix frontend ci",
-  "npm --prefix backend ci",
+  "npm --prefix frontend ci --include=dev",
+  "npm --prefix backend ci --include=dev",
 ]
 
 [phases.build]
