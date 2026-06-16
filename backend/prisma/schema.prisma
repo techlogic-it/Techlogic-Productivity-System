@@ -8,7 +8,9 @@ datasource db {
 }
 
 enum PortalRole {
-  PROVIDER_ADMIN // Techlogic â€” manages all organisations
+  PROVIDER_ADMIN // Techlogic â€” manages ALL companies + provider users
+  PROVIDER_SUPPORT // Techlogic staff â€” support actions on ASSIGNED companies only
+  PROVIDER_VIEWER // Techlogic staff â€” read-only on ASSIGNED companies only
   ORG_ADMIN // client org admin â€” sees the whole org, manages users + settings
   MANAGER // company-wide: views all reports + manages staff, no user/settings admin
   GROUP_ADMIN // sees ONLY their group's reports
@@ -50,6 +52,22 @@ model Organisation {
   setting        MonitoringSetting?
   appOverrides   OrgAppClassification[]
   titleRules     OrgTitleRule[]
+  providerAssignments ProviderAssignment[]
+}
+
+// Which companies a scoped provider user (PROVIDER_SUPPORT / PROVIDER_VIEWER) may
+// see and act on. PROVIDER_ADMIN ignores this table (it reaches every company).
+model ProviderAssignment {
+  id             String       @id @default(uuid())
+  portalUserId   String
+  portalUser     PortalUser   @relation(fields: [portalUserId], references: [id], onDelete: Cascade)
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([portalUserId, organisationId])
+  @@index([portalUserId])
+  @@index([organisationId])
 }
 
 // A team/department within an org. The unit of GROUP_ADMIN scoping.
@@ -89,7 +107,8 @@ model PortalUser {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  accessLogs MonitoringAccessLog[]
+  accessLogs          MonitoringAccessLog[]
+  providerAssignments ProviderAssignment[]
 }
 
 // Per-org install key â€” replaces the single global MONITORING_ENROLLMENT_SECRET.

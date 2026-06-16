@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import portalApi from '../portalApi';
-import { usePortalAuth } from '../PortalAuthContext';
+import { usePortalAuth, isProvider as isProviderRole } from '../PortalAuthContext';
 
 const DAYS = [['1', 'Mon'], ['2', 'Tue'], ['3', 'Wed'], ['4', 'Thu'], ['5', 'Fri'], ['6', 'Sat'], ['7', 'Sun']];
 const CATEGORIES = ['PRODUCTIVE', 'COMMUNICATION', 'DEVELOPMENT', 'ADMIN_BACKOFFICE', 'RMM_SUPPORT', 'RESEARCH', 'SOCIAL', 'ENTERTAINMENT', 'UNCATEGORISED', 'BLOCKED_HIGH_RISK'];
@@ -21,7 +21,7 @@ function Card({ title, subtitle, children }) {
 
 export default function PortalSettings() {
   const { user } = usePortalAuth();
-  const isProvider = user.role === 'PROVIDER_ADMIN';
+  const isProvider = isProviderRole(user.role);
 
   const [orgs, setOrgs] = useState([]);
   const [orgId, setOrgId] = useState(isProvider ? '' : user.organisationId || '');

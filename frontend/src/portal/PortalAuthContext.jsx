@@ -52,7 +52,11 @@ export function usePortalAuth() {
 }
 
 // Role helpers — keep ranks in sync with backend ROLE_RANK in portal-auth.js.
+const ROLE_RANK = { VIEWER: 0, GROUP_ADMIN: 1, MANAGER: 2, ORG_ADMIN: 3, PROVIDER_VIEWER: 4, PROVIDER_SUPPORT: 5, PROVIDER_ADMIN: 6 };
 export function isAtLeast(role, min) {
-  const rank = { VIEWER: 0, GROUP_ADMIN: 1, MANAGER: 2, ORG_ADMIN: 3, PROVIDER_ADMIN: 4 };
-  return (rank[role] ?? -1) >= (rank[min] ?? 99);
+  return (ROLE_RANK[role] ?? -1) >= (ROLE_RANK[min] ?? 99);
 }
+
+// The Techlogic-internal (cross-company) roles.
+export const PROVIDER_ROLES = ['PROVIDER_ADMIN', 'PROVIDER_SUPPORT', 'PROVIDER_VIEWER'];
+export function isProvider(role) { return PROVIDER_ROLES.includes(role); }

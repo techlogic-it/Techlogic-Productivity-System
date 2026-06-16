@@ -9,6 +9,8 @@ import {
   generateInviteToken,
   hashInviteToken,
   publicPortalUser,
+  isProviderRole,
+  blockReadOnlyProvider,
 } from '../middleware/portal-auth.js';
 import {
   generateEnrollmentKey,
@@ -20,6 +22,7 @@ import {
 
 const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 const ASSIGNABLE_ROLES = ['ORG_ADMIN', 'MANAGER', 'GROUP_ADMIN', 'VIEWER'];
+const PROVIDER_ASSIGNABLE_ROLES = ['PROVIDER_ADMIN', 'PROVIDER_SUPPORT', 'PROVIDER_VIEWER'];
 
 // Editable tenant detail fields (everything except name/slug/status/relations).
 const COMPANY_DETAIL_FIELDS = ['address', 'phone', 'email', 'website', 'contactName', 'contactEmail', 'contactPhone'];
@@ -34,6 +37,7 @@ function pickCompanyDetails(body) {
 
 const router = Router();
 router.use(authenticatePortal);
+router.use(blockReadOnlyProvider); // PROVIDER_VIEWER may read but never write
 
 // Provider/org administration for the product: organisations, groups, enrolment
 // keys, and per-user claim codes. Enough to drive enrolment and the two linking
@@ -47,9 +51,20 @@ function slugify(s) {
     .replace(/^-+|-+$/g, '');
 }
 
-// A non-provider caller may only touch their own organisation.
+// May this caller see/operate on this company at all? Provider admin → any;
+// scoped provider → only assigned companies; everyone else → their own company.
 function canAccessOrg(portalUser, orgId) {
-  return portalUser.role === 'PROVIDER_ADMIN' || portalUser.organisationId === orgId;
+  if (portalUser.role === 'PROVIDER_ADMIN') return true;
+  if (isProviderRole(portalUser.role)) return (portalUser.assignedOrgIds || []).includes(orgId);
+  return portalUser.organisationId === orgId;
+}
+
+// Who may run a company's OWN administration (departments, company logins): the
+// company's own ORG_ADMIN, or the provider superuser. Scoped provider staff are
+// deliberately excluded — they support companies, they don't run them.
+function isOrgSelfAdmin(portalUser, orgId) {
+  if (portalUser.role === 'PROVIDER_ADMIN') return true;
+  return portalUser.role === 'ORG_ADMIN' && portalUser.organisationId === orgId;
 }
 
 // The public base URL the agent should target (the installer bakes it in next to
@@ -119,11 +134,17 @@ router.post(
 router.get(
   '/organisations',
   asyncHandler(async (req, res) => {
-    // Provider sees all; everyone else sees only their own org.
-    const where =
-      req.portalUser.role === 'PROVIDER_ADMIN'
-        ? {}
-        : { id: req.portalUser.organisationId || '__none__' };
+    // Provider admin sees all; scoped provider staff see only assigned companies;
+    // everyone else sees only their own org.
+    let where;
+    if (req.portalUser.role === 'PROVIDER_ADMIN') {
+      where = {};
+    } else if (isProviderRole(req.portalUser.role)) {
+      const ids = req.portalUser.assignedOrgIds || [];
+      where = { id: { in: ids.length ? ids : ['__none__'] } };
+    } else {
+      where = { id: req.portalUser.organisationId || '__none__' };
+    }
     const orgs = await prisma.organisation.findMany({
       where,
       orderBy: { name: 'asc' },
@@ -179,7 +200,7 @@ router.patch(
       data.name = name;
     }
     // Seat limit (licensing) is provider-only; org admins can't change their own.
-    if (req.body?.seatLimit !== undefined && req.portalUser.role === 'PROVIDER_ADMIN') {
+    if (req.body?.seatLimit !== undefined && (req.portalUser.role === 'PROVIDER_ADMIN' || req.portalUser.role === 'PROVIDER_SUPPORT')) {
       const raw = req.body.seatLimit;
       const n = raw === null || raw === '' ? null : Number(raw);
       if (n !== null && (!Number.isInteger(n) || n < 0)) {
@@ -227,6 +248,7 @@ router.delete(
       prisma.orgAppClassification.deleteMany({ where: { organisationId: id } }),
       prisma.orgTitleRule.deleteMany({ where: { organisationId: id } }),
       prisma.monitoringSetting.deleteMany({ where: { organisationId: id } }),
+      prisma.providerAssignment.deleteMany({ where: { organisationId: id } }),
       prisma.portalUser.deleteMany({ where: { organisationId: id } }),
       prisma.group.deleteMany({ where: { organisationId: id } }),
       prisma.organisation.delete({ where: { id } }),
@@ -241,8 +263,8 @@ router.post(
   '/organisations/:id/groups',
   requirePortalRole('ORG_ADMIN'),
   asyncHandler(async (req, res) => {
-    if (!canAccessOrg(req.portalUser, req.params.id)) {
-      return res.status(403).json({ error: 'Forbidden' });
+    if (!isOrgSelfAdmin(req.portalUser, req.params.id)) {
+      return res.status(403).json({ error: 'Departments are managed by the company admin.' });
     }
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'name is required' });
@@ -272,7 +294,7 @@ router.patch(
   '/organisations/:id/groups/:groupId',
   requirePortalRole('ORG_ADMIN'),
   asyncHandler(async (req, res) => {
-    if (!canAccessOrg(req.portalUser, req.params.id)) return res.status(403).json({ error: 'Forbidden' });
+    if (!isOrgSelfAdmin(req.portalUser, req.params.id)) return res.status(403).json({ error: 'Departments are managed by the company admin.' });
     const group = await prisma.group.findFirst({ where: { id: req.params.groupId, organisationId: req.params.id } });
     if (!group) return res.status(404).json({ error: 'Department not found' });
     const name = String(req.body?.name || '').trim();
@@ -292,7 +314,7 @@ router.delete(
   '/organisations/:id/groups/:groupId',
   requirePortalRole('ORG_ADMIN'),
   asyncHandler(async (req, res) => {
-    if (!canAccessOrg(req.portalUser, req.params.id)) return res.status(403).json({ error: 'Forbidden' });
+    if (!isOrgSelfAdmin(req.portalUser, req.params.id)) return res.status(403).json({ error: 'Departments are managed by the company admin.' });
     const group = await prisma.group.findFirst({ where: { id: req.params.groupId, organisationId: req.params.id } });
     if (!group) return res.status(404).json({ error: 'Department not found' });
     await prisma.$transaction([
@@ -312,7 +334,7 @@ router.put(
   '/organisations/:id/groups/:groupId/manager',
   requirePortalRole('ORG_ADMIN'),
   asyncHandler(async (req, res) => {
-    if (!canAccessOrg(req.portalUser, req.params.id)) return res.status(403).json({ error: 'Forbidden' });
+    if (!isOrgSelfAdmin(req.portalUser, req.params.id)) return res.status(403).json({ error: 'Departments are managed by the company admin.' });
     const group = await prisma.group.findFirst({ where: { id: req.params.groupId, organisationId: req.params.id } });
     if (!group) return res.status(404).json({ error: 'Department not found' });
     const userId = req.body?.userId || null;
@@ -407,7 +429,7 @@ router.get(
 // deployed for that company.
 router.post(
   '/organisations/:id/enrollment-key/regenerate',
-  requirePortalRole('PROVIDER_ADMIN'),
+  requirePortalRole('PROVIDER_SUPPORT'), // provider staff only; never the company's own admins
   asyncHandler(async (req, res) => {
     if (!canAccessOrg(req.portalUser, req.params.id)) {
       return res.status(403).json({ error: 'Forbidden' });
@@ -556,8 +578,8 @@ router.post(
   '/organisations/:id/users',
   requirePortalRole('ORG_ADMIN'),
   asyncHandler(async (req, res) => {
-    if (!canAccessOrg(req.portalUser, req.params.id)) {
-      return res.status(403).json({ error: 'Forbidden' });
+    if (!isOrgSelfAdmin(req.portalUser, req.params.id)) {
+      return res.status(403).json({ error: 'Company logins are managed by the company admin.' });
     }
     const email = String(req.body?.email || '').trim().toLowerCase();
     const name = String(req.body?.name || '').trim();
@@ -624,8 +646,8 @@ router.patch(
   '/organisations/:id/users/:userId',
   requirePortalRole('ORG_ADMIN'),
   asyncHandler(async (req, res) => {
-    if (!canAccessOrg(req.portalUser, req.params.id)) {
-      return res.status(403).json({ error: 'Forbidden' });
+    if (!isOrgSelfAdmin(req.portalUser, req.params.id)) {
+      return res.status(403).json({ error: 'Company logins are managed by the company admin.' });
     }
     const user = await prisma.portalUser.findFirst({
       where: { id: req.params.userId, organisationId: req.params.id },
@@ -687,6 +709,129 @@ router.post(
       },
     });
     res.json({ user: publicPortalUser(user), inviteToken: token });
+  }),
+);
+
+// ── Provider users (internal Techlogic staff) ────────────────────────────────
+// Managed only by a PROVIDER_ADMIN. These accounts have organisationId = null;
+// PROVIDER_SUPPORT / PROVIDER_VIEWER are scoped to the companies in
+// ProviderAssignment, PROVIDER_ADMIN reaches every company.
+
+const providerUserView = (u) => ({
+  ...publicPortalUser(u),
+  organisationIds: (u.providerAssignments || []).map((a) => a.organisationId),
+});
+
+// Replace a provider user's company assignments (no-op for PROVIDER_ADMIN, which
+// is unscoped). Validates that every id is a real company.
+async function setProviderAssignments(portalUserId, role, organisationIds) {
+  await prisma.providerAssignment.deleteMany({ where: { portalUserId } });
+  if (role === 'PROVIDER_ADMIN') return; // admin is unscoped — never assigned
+  const ids = [...new Set((organisationIds || []).filter(Boolean))];
+  if (ids.length === 0) return;
+  const found = await prisma.organisation.findMany({ where: { id: { in: ids } }, select: { id: true } });
+  const valid = new Set(found.map((o) => o.id));
+  await prisma.providerAssignment.createMany({
+    data: ids.filter((id) => valid.has(id)).map((organisationId) => ({ portalUserId, organisationId })),
+    skipDuplicates: true,
+  });
+}
+
+router.get(
+  '/provider/users',
+  requirePortalRole('PROVIDER_ADMIN'),
+  asyncHandler(async (req, res) => {
+    const users = await prisma.portalUser.findMany({
+      where: { role: { in: PROVIDER_ASSIGNABLE_ROLES } },
+      orderBy: { createdAt: 'asc' },
+      include: { providerAssignments: { select: { organisationId: true } } },
+    });
+    res.json(users.map(providerUserView));
+  }),
+);
+
+router.post(
+  '/provider/users',
+  requirePortalRole('PROVIDER_ADMIN'),
+  asyncHandler(async (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const name = String(req.body?.name || '').trim();
+    const role = String(req.body?.role || 'PROVIDER_VIEWER');
+    if (!email || !name) return res.status(400).json({ error: 'email and name are required' });
+    if (!PROVIDER_ASSIGNABLE_ROLES.includes(role)) {
+      return res.status(400).json({ error: `role must be one of ${PROVIDER_ASSIGNABLE_ROLES.join(', ')}` });
+    }
+    if (role !== 'PROVIDER_ADMIN' && !(Array.isArray(req.body?.organisationIds) && req.body.organisationIds.length)) {
+      return res.status(400).json({ error: 'Assign at least one company (or make them a Provider Admin).' });
+    }
+    if (await prisma.portalUser.findUnique({ where: { email } })) {
+      return res.status(409).json({ error: 'A user with that email already exists' });
+    }
+
+    const token = generateInviteToken();
+    const user = await prisma.portalUser.create({
+      data: {
+        organisationId: null,
+        email,
+        name,
+        role,
+        isActive: true,
+        inviteTokenHash: hashInviteToken(token),
+        inviteExpiresAt: new Date(Date.now() + INVITE_TTL_MS),
+        invitedAt: new Date(),
+      },
+    });
+    await setProviderAssignments(user.id, role, req.body?.organisationIds);
+    const full = await prisma.portalUser.findUnique({ where: { id: user.id }, include: { providerAssignments: { select: { organisationId: true } } } });
+    res.status(201).json({ user: providerUserView(full), inviteToken: token });
+  }),
+);
+
+router.patch(
+  '/provider/users/:id',
+  requirePortalRole('PROVIDER_ADMIN'),
+  asyncHandler(async (req, res) => {
+    const target = await prisma.portalUser.findFirst({ where: { id: req.params.id, role: { in: PROVIDER_ASSIGNABLE_ROLES } } });
+    if (!target) return res.status(404).json({ error: 'Provider user not found' });
+
+    const role = req.body?.role !== undefined ? String(req.body.role) : target.role;
+    if (req.body?.role !== undefined && !PROVIDER_ASSIGNABLE_ROLES.includes(role)) {
+      return res.status(400).json({ error: `role must be one of ${PROVIDER_ASSIGNABLE_ROLES.join(', ')}` });
+    }
+    // A provider admin can't lock themselves out (drop their own admin or disable self).
+    if (target.id === req.portalUser.id && ((req.body?.role !== undefined && role !== 'PROVIDER_ADMIN') || req.body?.isActive === false)) {
+      return res.status(400).json({ error: "You can't change your own provider-admin access." });
+    }
+    if (role !== 'PROVIDER_ADMIN' && req.body?.organisationIds !== undefined && (!Array.isArray(req.body.organisationIds) || req.body.organisationIds.length === 0)) {
+      return res.status(400).json({ error: 'Assign at least one company (or make them a Provider Admin).' });
+    }
+
+    const data = {};
+    if (req.body?.name !== undefined) { const n = String(req.body.name).trim(); if (n) data.name = n; }
+    if (req.body?.role !== undefined) data.role = role;
+    if (req.body?.isActive !== undefined) data.isActive = !!req.body.isActive;
+    await prisma.portalUser.update({ where: { id: target.id }, data });
+    if (req.body?.role !== undefined || req.body?.organisationIds !== undefined) {
+      await setProviderAssignments(target.id, role, req.body?.organisationIds ?? undefined);
+    }
+    const full = await prisma.portalUser.findUnique({ where: { id: target.id }, include: { providerAssignments: { select: { organisationId: true } } } });
+    res.json(providerUserView(full));
+  }),
+);
+
+// (Re)issue an invite / password-reset link for a provider user.
+router.post(
+  '/provider/users/:id/invite',
+  requirePortalRole('PROVIDER_ADMIN'),
+  asyncHandler(async (req, res) => {
+    const target = await prisma.portalUser.findFirst({ where: { id: req.params.id, role: { in: PROVIDER_ASSIGNABLE_ROLES } } });
+    if (!target) return res.status(404).json({ error: 'Provider user not found' });
+    const token = generateInviteToken();
+    await prisma.portalUser.update({
+      where: { id: target.id },
+      data: { inviteTokenHash: hashInviteToken(token), inviteExpiresAt: new Date(Date.now() + INVITE_TTL_MS), invitedAt: new Date() },
+    });
+    res.json({ user: publicPortalUser(target), inviteToken: token });
   }),
 );
 

@@ -6,6 +6,8 @@ const PRODUCT_NAME = 'Techlogic Productivity System';
 
 const ROLE_LABEL = {
   PROVIDER_ADMIN: 'Provider Admin',
+  PROVIDER_SUPPORT: 'Provider Support',
+  PROVIDER_VIEWER: 'Provider (read-only)',
   ORG_ADMIN: 'Admin',
   MANAGER: 'Manager',
   GROUP_ADMIN: 'Department Manager',
@@ -50,8 +52,9 @@ export default function PortalLayout({ children }) {
         <nav className="flex-1 p-3 space-y-1">
           <NavItem to="/portal" end>Dashboard</NavItem>
           {isAtLeast(user?.role, 'GROUP_ADMIN') && <NavItem to="/portal/employees">People</NavItem>}
-          {isAtLeast(user?.role, 'ORG_ADMIN') && <NavItem to="/portal/admin">Admin</NavItem>}
+          {isAtLeast(user?.role, 'ORG_ADMIN') && <NavItem to="/portal/admin">{user?.role === 'PROVIDER_ADMIN' || user?.role === 'PROVIDER_SUPPORT' || user?.role === 'PROVIDER_VIEWER' ? 'Companies' : 'Admin'}</NavItem>}
           {isAtLeast(user?.role, 'ORG_ADMIN') && <NavItem to="/portal/settings">Settings</NavItem>}
+          {user?.role === 'PROVIDER_ADMIN' && <NavItem to="/portal/provider-users">Provider users</NavItem>}
         </nav>
         <div className="p-3 border-t border-gray-800">
           <div className="text-sm text-white truncate">{user?.name}</div>

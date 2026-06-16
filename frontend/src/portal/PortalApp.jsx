@@ -8,6 +8,7 @@ import PortalEmployees from './pages/PortalEmployees';
 import PortalEmployee from './pages/PortalEmployee';
 import PortalAdmin from './pages/PortalAdmin';
 import PortalSettings from './pages/PortalSettings';
+import PortalProviderUsers from './pages/PortalProviderUsers';
 
 function Loading() {
   return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading…</div>;
@@ -45,6 +46,10 @@ function Shell() {
       <Route
         path="/portal/settings"
         element={<RequireAuth minRole="ORG_ADMIN"><PortalLayout><PortalSettings /></PortalLayout></RequireAuth>}
+      />
+      <Route
+        path="/portal/provider-users"
+        element={<RequireAuth minRole="PROVIDER_ADMIN"><PortalLayout><PortalProviderUsers /></PortalLayout></RequireAuth>}
       />
       <Route path="/portal/*" element={<Navigate to="/portal" replace />} />
     </Routes>

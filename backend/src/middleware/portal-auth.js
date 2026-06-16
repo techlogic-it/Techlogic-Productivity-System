@@ -59,6 +59,16 @@ export async function authenticatePortal(req, res, next) {
       return res.status(401).json({ error: 'Account not found or inactive' });
     }
 
+    // Scoped provider staff (support/viewer) carry the set of companies they may
+    // reach. PROVIDER_ADMIN leaves this undefined — it reaches every company.
+    if (user.role === 'PROVIDER_SUPPORT' || user.role === 'PROVIDER_VIEWER') {
+      const assignments = await prisma.providerAssignment.findMany({
+        where: { portalUserId: user.id },
+        select: { organisationId: true },
+      });
+      user.assignedOrgIds = assignments.map((a) => a.organisationId);
+    }
+
     req.portalUser = user;
     next();
   } catch (err) {
@@ -73,8 +83,29 @@ export const ROLE_RANK = {
   GROUP_ADMIN: 1,
   MANAGER: 2,
   ORG_ADMIN: 3,
-  PROVIDER_ADMIN: 4,
+  // Provider (Techlogic) staff sit above org roles so they pass every org READ
+  // gate. WRITE limits for the scoped tiers are enforced explicitly (a read-only
+  // guard for PROVIDER_VIEWER; per-route capability checks for PROVIDER_SUPPORT),
+  // never by rank alone.
+  PROVIDER_VIEWER: 4,
+  PROVIDER_SUPPORT: 5,
+  PROVIDER_ADMIN: 6,
 };
+
+// The Techlogic-internal (cross-company) roles.
+export const PROVIDER_ROLES = ['PROVIDER_ADMIN', 'PROVIDER_SUPPORT', 'PROVIDER_VIEWER'];
+export function isProviderRole(role) {
+  return PROVIDER_ROLES.includes(role);
+}
+
+// Blocks every state-changing request from a read-only provider account. Mount
+// AFTER authenticatePortal on any router a PROVIDER_VIEWER can reach.
+export function blockReadOnlyProvider(req, res, next) {
+  if (req.portalUser?.role === 'PROVIDER_VIEWER' && req.method !== 'GET') {
+    return res.status(403).json({ error: 'This is a read-only provider account.' });
+  }
+  next();
+}
 
 // Role gate. Pass the MINIMUM role(s) a route needs; anyone at or above the lowest
 // listed rank is admitted (so 'MANAGER' admits ORG_ADMIN/PROVIDER_ADMIN too).
@@ -97,6 +128,12 @@ export function scopeFor(portalUser) {
   switch (portalUser.role) {
     case 'PROVIDER_ADMIN':
       return {};
+    case 'PROVIDER_SUPPORT':
+    case 'PROVIDER_VIEWER': {
+      // Limited to the companies this provider user is assigned to.
+      const ids = portalUser.assignedOrgIds || [];
+      return { organisationId: { in: ids.length ? ids : ['__none__'] } };
+    }
     case 'ORG_ADMIN':
     case 'MANAGER':
       // Both see the whole company; MANAGER just can't manage users/settings
@@ -124,6 +161,7 @@ export function publicPortalUser(u) {
     organisationId: u.organisationId,
     groupId: u.groupId,
     isActive: u.isActive,
+    passwordSetAt: u.passwordSetAt ?? null,
     lastLoginAt: u.lastLoginAt,
   };
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import portalApi from '../portalApi';
-import { usePortalAuth } from '../PortalAuthContext';
+import { usePortalAuth, isProvider as isProviderRole } from '../PortalAuthContext';
 
 function Section({ title, children, action }) {
   return (
@@ -41,7 +41,10 @@ const EMPTY_COMPANY = { name: '', address: '', phone: '', email: '', website: ''
 
 export default function PortalAdmin() {
   const { user, org } = usePortalAuth();
-  const isProvider = user.role === 'PROVIDER_ADMIN';
+  const isProvider = isProviderRole(user.role);          // any Techlogic staff tier
+  const isProviderAdmin = user.role === 'PROVIDER_ADMIN'; // create/delete companies
+  const canManageSeats = user.role === 'PROVIDER_ADMIN' || user.role === 'PROVIDER_SUPPORT'; // seats + key rotation
+  const isReadOnly = user.role === 'PROVIDER_VIEWER'; // can look, never change
 
   const [orgs, setOrgs] = useState([]);
   const [orgId, setOrgId] = useState(org?.id || '');
@@ -226,7 +229,7 @@ export default function PortalAdmin() {
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-gray-800">Admin</h1>
+          <h1 className="text-xl font-bold text-gray-800">{isProvider ? 'Companies' : 'Admin'}</h1>
           {selectedOrg?.seatLimit != null && (
             <span className={`text-sm font-medium rounded-lg px-3 py-1 ${(selectedOrg.monitoredUserCount ?? 0) >= selectedOrg.seatLimit ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
               {selectedOrg.monitoredUserCount ?? 0} of {selectedOrg.seatLimit} seats used
@@ -245,9 +248,9 @@ export default function PortalAdmin() {
       {isProvider && (
         <Section
           title="Companies"
-          action={<button onClick={() => setShowNew((s) => !s)} className="rounded-lg bg-teal-600 text-white px-3 py-1.5 text-sm">{showNew ? 'Cancel' : '+ New company'}</button>}
+          action={isProviderAdmin && <button onClick={() => setShowNew((s) => !s)} className="rounded-lg bg-teal-600 text-white px-3 py-1.5 text-sm">{showNew ? 'Cancel' : '+ New company'}</button>}
         >
-          {showNew && (
+          {isProviderAdmin && showNew && (
             <div className="mb-5 rounded-lg border border-gray-200 p-4 bg-gray-50">
               <div className="grid grid-cols-2 gap-3">
                 {field('Company name *', 'name')}
@@ -289,7 +292,7 @@ export default function PortalAdmin() {
                   <td className="py-2 text-right tabular-nums text-gray-500 cursor-pointer" onClick={() => setOrgId(o.id)}>{o._count?.portalUsers ?? 0}</td>
                   <td className="py-2 text-right whitespace-nowrap">
                     {o.id === orgId && <span className="text-xs text-teal-700 font-medium mr-3">Managing</span>}
-                    <button onClick={() => deleteCompany(o)} className="text-xs text-red-600 hover:underline">Delete</button>
+                    {isProviderAdmin && <button onClick={() => deleteCompany(o)} className="text-xs text-red-600 hover:underline">Delete</button>}
                   </td>
                 </tr>
               ))}
@@ -335,19 +338,24 @@ export default function PortalAdmin() {
             <span className="block text-xs text-gray-500 mb-1">Contact phone</span>
             <input value={details.contactPhone} onChange={(e) => setDetails({ ...details, contactPhone: e.target.value })} className={`${input} w-full`} />
           </label>
-          {isProvider && (
+          {canManageSeats && (
             <label className="block col-span-2 border-t border-gray-100 pt-3 mt-1">
               <span className="block text-xs text-gray-500 mb-1">Licence — max monitored users (seats). Blank = unlimited. New users beyond this aren't monitored until a seat is freed.</span>
               <input type="number" min="0" placeholder="Unlimited" value={details.seatLimit} onChange={(e) => setDetails({ ...details, seatLimit: e.target.value })} className={`${input} w-40`} />
             </label>
           )}
         </div>
-        <div className="flex items-center gap-3 mt-4">
-          <button onClick={saveDetails} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 text-sm">Save details</button>
-          {detailsMsg && <span className={`text-sm ${detailsMsg === 'Saved' ? 'text-green-600' : 'text-red-600'}`}>{detailsMsg}</span>}
-        </div>
+        {!isReadOnly && (
+          <div className="flex items-center gap-3 mt-4">
+            <button onClick={saveDetails} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 text-sm">Save details</button>
+            {detailsMsg && <span className={`text-sm ${detailsMsg === 'Saved' ? 'text-green-600' : 'text-red-600'}`}>{detailsMsg}</span>}
+          </div>
+        )}
       </Section>
 
+      {/* Departments + company logins are the company's OWN administration — hidden
+          from the provider console (which only supports companies, never runs them). */}
+      {!isProvider && (<>
       <Section title="Departments">
         <div className="grid grid-cols-3 gap-2 mb-2">
           <input placeholder="Department name *" value={newDept.name} onChange={(e) => setNewDept({ ...newDept, name: e.target.value })} className={input} />
@@ -411,6 +419,31 @@ export default function PortalAdmin() {
           </tbody>
         </table>
       </Section>
+      </>)}
+
+      {/* Provider support: read the company's logins and reset a forgotten password,
+          without taking over the company's own user administration. */}
+      {isProvider && (
+        <Section title="Company logins (support)">
+          <p className="text-xs text-gray-500 mb-3">The company manages its own logins. As provider support you can re-issue a password link if someone is locked out.</p>
+          <table className="w-full text-sm">
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} className="border-t border-gray-100">
+                  <td className="py-2 font-medium text-gray-800">{u.name}</td>
+                  <td className="py-2 text-gray-500">{u.email}</td>
+                  <td className="py-2 text-gray-600">{ROLE_LABEL[u.role] || u.role}</td>
+                  <td className="py-2 text-right text-xs text-gray-400">{u.passwordSetAt ? 'active' : 'invited'}</td>
+                  <td className="py-2 text-right whitespace-nowrap">
+                    {!isReadOnly && <button onClick={() => resendInvite(u)} className="text-xs text-teal-700 hover:underline">{u.passwordSetAt ? 'Reset password link' : 'Copy invite link'}</button>}
+                  </td>
+                </tr>
+              ))}
+              {users.length === 0 && <tr><td className="py-2 text-sm text-gray-400">No company logins yet.</td></tr>}
+            </tbody>
+          </table>
+        </Section>
+      )}
 
       <Section title="Company enrolment key">
         {!companyKey ? (
@@ -424,13 +457,15 @@ export default function PortalAdmin() {
                 <button onClick={() => copy(companyKey.enrollmentKey, 'key')} className="shrink-0 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 text-sm">{copied === 'key' ? 'Copied' : 'Copy'}</button>
               </div>
             </div>
-            <div>
-              <div className="text-xs text-gray-500 mb-1">Default department — new machines (and currently unassigned users) automatically join this department.</div>
-              <select value={companyKey.defaultGroupId || ''} onChange={(e) => setDefaultGroup(e.target.value)} className={input}>
-                <option value="">No default department</option>
-                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select>
-            </div>
+            {!isProvider && (
+              <div>
+                <div className="text-xs text-gray-500 mb-1">Default department — new machines (and currently unassigned users) automatically join this department.</div>
+                <select value={companyKey.defaultGroupId || ''} onChange={(e) => setDefaultGroup(e.target.value)} className={input}>
+                  <option value="">No default department</option>
+                  {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <div className="text-xs text-gray-500 mb-1">One-click installer — hand this to the user (downloads the agent, installs it, autostarts at login). No admin needed.</div>
               <div className="flex gap-2">
@@ -438,10 +473,10 @@ export default function PortalAdmin() {
                 <button onClick={downloadUninstaller} className="rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 text-sm">Download uninstaller (.bat)</button>
               </div>
             </div>
-            {isProvider && (
+            {canManageSeats && (
               <div className="flex items-center gap-3 pt-1 border-t border-gray-100">
                 <button onClick={regenerateKey} className="mt-3 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 px-3 py-1.5 text-sm">Regenerate key</button>
-                <span className="mt-3 text-xs text-gray-400">Provider-only. Rotating immediately invalidates the old key; every deployed installer must be re-issued.</span>
+                <span className="mt-3 text-xs text-gray-400">Provider staff only. Rotating immediately invalidates the old key; every deployed installer must be re-issued.</span>
               </div>
             )}
           </div>

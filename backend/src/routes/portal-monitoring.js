@@ -3,7 +3,7 @@ import { Router } from 'express';
 import asyncHandler from 'express-async-handler';
 
 import prisma from '../prisma.js';
-import { authenticatePortal, requirePortalRole, scopeFor } from '../middleware/portal-auth.js';
+import { authenticatePortal, requirePortalRole, scopeFor, blockReadOnlyProvider } from '../middleware/portal-auth.js';
 import {
   dateOnly,
   weightForCategory,
@@ -15,6 +15,7 @@ import { generateAgentToken, hashAgentToken } from '../middleware/agent-auth.js'
 
 const router = Router();
 router.use(authenticatePortal);
+router.use(blockReadOnlyProvider); // PROVIDER_VIEWER may read but never write
 
 // Product dashboard reads. Tenant isolation comes from scopeFor() on every query
 // — this is the parallel of the internal monitoring.js dashboard plane, but
@@ -325,10 +326,16 @@ router.delete('/title-rules/:id', requirePortalRole('ORG_ADMIN'), asyncHandler(a
 // ── Per-organisation settings (office hours) ─────────────────────────────────
 
 function targetOrgId(req) {
-  // Provider may inspect a specific org via ?organisationId; everyone else is
-  // pinned to their own.
-  if (req.portalUser.role === 'PROVIDER_ADMIN') return req.query.organisationId || req.body?.organisationId || null;
-  return req.portalUser.organisationId;
+  const u = req.portalUser;
+  // Provider admin may inspect any org via ?organisationId.
+  if (u.role === 'PROVIDER_ADMIN') return req.query.organisationId || req.body?.organisationId || null;
+  // Scoped provider staff may inspect any company they're assigned to.
+  if (u.role === 'PROVIDER_SUPPORT' || u.role === 'PROVIDER_VIEWER') {
+    const want = req.query.organisationId || req.body?.organisationId || null;
+    return want && (u.assignedOrgIds || []).includes(want) ? want : null;
+  }
+  // Everyone else is pinned to their own org.
+  return u.organisationId;
 }
 
 router.get(
