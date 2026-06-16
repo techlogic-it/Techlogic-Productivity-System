@@ -48,7 +48,6 @@ export default function PortalAdmin() {
   const [groups, setGroups] = useState([]);
   const [users, setUsers] = useState([]);
   const [companyKey, setCompanyKey] = useState(null);
-  const [people, setPeople] = useState([]);
   const [secret, setSecret] = useState(null);
   const [copied, setCopied] = useState('');
 
@@ -58,7 +57,6 @@ export default function PortalAdmin() {
   const [detailsMsg, setDetailsMsg] = useState('');
   const [newDept, setNewDept] = useState({ name: '', managerName: '', managerEmail: '' });
   const [invite, setInvite] = useState({ email: '', name: '', role: 'VIEWER', groupId: '' });
-  const [person, setPerson] = useState({ displayName: '', groupId: '' });
 
   const loadOrgs = useCallback(async () => {
     const r = await portalApi.get('/orgs/organisations');
@@ -85,13 +83,12 @@ export default function PortalAdmin() {
 
   const loadOrg = useCallback(async () => {
     if (!orgId) return;
-    const [g, u, k, p] = await Promise.all([
+    const [g, u, k] = await Promise.all([
       portalApi.get(`/orgs/organisations/${orgId}/groups`),
       portalApi.get(`/orgs/organisations/${orgId}/users`),
       portalApi.get(`/orgs/organisations/${orgId}/enrollment-key`),
-      portalApi.get('/monitoring/employees'),
     ]);
-    setGroups(g.data || []); setUsers(u.data || []); setCompanyKey(k.data || null); setPeople(p.data || []);
+    setGroups(g.data || []); setUsers(u.data || []); setCompanyKey(k.data || null);
   }, [orgId]);
 
   useEffect(() => { loadOrg(); }, [loadOrg]);
@@ -178,14 +175,6 @@ export default function PortalAdmin() {
     setCompanyKey(data);
     loadOrg(); // refresh people — ungrouped users were back-filled into the group
   };
-  const addPerson = async () => {
-    if (!person.displayName.trim()) return;
-    const { data } = await portalApi.post(`/orgs/organisations/${orgId}/employees`, person);
-    setPerson({ displayName: '', groupId: '' });
-    setSecret({ label: `Claim code for ${data.displayName}`, value: data.claimCode });
-    loadOrg();
-  };
-
   const input = 'rounded-lg border border-gray-300 px-3 py-2 text-sm';
   const field = (label, key, type = 'text') => (
     <label className="block">
@@ -405,28 +394,6 @@ export default function PortalAdmin() {
             </div>
           </div>
         )}
-      </Section>
-
-      <Section title="People & claim codes (assigned laptops)">
-        <div className="flex gap-2 mb-3">
-          <input placeholder="Person's name" value={person.displayName} onChange={(e) => setPerson({ ...person, displayName: e.target.value })} className={`${input} flex-1`} />
-          <select value={person.groupId} onChange={(e) => setPerson({ ...person, groupId: e.target.value })} className={input}>
-            <option value="">No department</option>
-            {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
-          <button onClick={addPerson} className="rounded-lg bg-teal-600 text-white px-3 text-sm">Create + code</button>
-        </div>
-        <table className="w-full text-sm">
-          <tbody>
-            {people.map((p) => (
-              <tr key={p.id} className="border-t border-gray-100">
-                <td className="py-2 font-medium text-gray-800">{p.displayName || 'Unnamed'}</td>
-                <td className="py-2 text-gray-500">{p.group?.name || '—'}</td>
-                <td className="py-2 text-right text-xs text-gray-400">{p.claimStatus}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </Section>
     </div>
   );
