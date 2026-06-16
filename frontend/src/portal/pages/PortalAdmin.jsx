@@ -162,14 +162,16 @@ export default function PortalAdmin() {
       setCopied(what); setTimeout(() => setCopied(''), 1500);
     } catch { /* clipboard unavailable (e.g. non-secure context) */ }
   };
-  const downloadInstaller = async () => {
-    const res = await portalApi.get(`/orgs/organisations/${orgId}/installer.bat`, { responseType: 'blob' });
+  const downloadBat = async (path, filename) => {
+    const res = await portalApi.get(path, { responseType: 'blob' });
     const url = URL.createObjectURL(res.data);
     const a = document.createElement('a');
-    a.href = url; a.download = 'install-techlogic-productivity.bat';
+    a.href = url; a.download = filename;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   };
+  const downloadInstaller = () => downloadBat(`/orgs/organisations/${orgId}/installer.bat`, 'install-techlogic-productivity.bat');
+  const downloadUninstaller = () => downloadBat(`/orgs/organisations/${orgId}/uninstaller.bat`, 'uninstall-techlogic-productivity.bat');
   const setDefaultGroup = async (groupId) => {
     const { data } = await portalApi.put(`/orgs/organisations/${orgId}/enrollment-key`, { defaultGroupId: groupId || null });
     setCompanyKey(data);
@@ -381,7 +383,10 @@ export default function PortalAdmin() {
             </div>
             <div>
               <div className="text-xs text-gray-500 mb-1">One-click installer — hand this to the user (downloads the agent, installs it, autostarts at login). No admin needed.</div>
-              <button onClick={downloadInstaller} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 text-sm font-medium">Download installer (.bat)</button>
+              <div className="flex gap-2">
+                <button onClick={downloadInstaller} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 text-sm font-medium">Download installer (.bat)</button>
+                <button onClick={downloadUninstaller} className="rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 text-sm">Download uninstaller (.bat)</button>
+              </div>
             </div>
             <div className="flex items-center gap-3 pt-1 border-t border-gray-100">
               <button onClick={regenerateKey} className="mt-3 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 px-3 py-1.5 text-sm">Regenerate key</button>

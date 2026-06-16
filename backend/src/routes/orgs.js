@@ -410,6 +410,28 @@ function buildInstallerBat({ serverUrl, key, exeUrl }) {
   return lines.join('\r\n') + '\r\n';
 }
 
+// Silent per-user uninstaller — stop the agent, remove the autostart, delete the
+// install folder. Generic (no company data needed).
+function buildUninstallerBat() {
+  const lines = [
+    '@echo off',
+    'rem ===== Techlogic Productivity System - SILENT uninstaller (per user) =====',
+    'if /i "%~1"=="/silent" goto uninstall',
+    `> "%TEMP%\\tps-uninstall.vbs" echo CreateObject("WScript.Shell").Run "cmd /c ""%~f0"" /silent", 0, False`,
+    `wscript "%TEMP%\\tps-uninstall.vbs"`,
+    'exit /b',
+    '',
+    ':uninstall',
+    'setlocal',
+    'taskkill /F /IM ProductivityAgent.exe >nul 2>&1',
+    'del "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\TechlogicProductivity.vbs" >nul 2>&1',
+    'rmdir /S /Q "%LOCALAPPDATA%\\TechlogicProductivity" >nul 2>&1',
+    'del "%TEMP%\\tps-uninstall.vbs" >nul 2>&1',
+    'endlocal',
+  ];
+  return lines.join('\r\n') + '\r\n';
+}
+
 router.get(
   '/organisations/:id/installer.bat',
   requirePortalRole('ORG_ADMIN'),
@@ -427,6 +449,19 @@ router.get(
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Disposition', 'attachment; filename="install-techlogic-productivity.bat"');
     res.send(bat);
+  }),
+);
+
+router.get(
+  '/organisations/:id/uninstaller.bat',
+  requirePortalRole('ORG_ADMIN'),
+  asyncHandler(async (req, res) => {
+    if (!canAccessOrg(req.portalUser, req.params.id)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="uninstall-techlogic-productivity.bat"');
+    res.send(buildUninstallerBat());
   }),
 );
 
