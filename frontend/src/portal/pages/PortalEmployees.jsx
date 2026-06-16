@@ -60,7 +60,7 @@ export default function PortalEmployees() {
             <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
               <tr>
                 <th className="text-left font-medium px-4 py-2">Name</th>
-                <th className="text-left font-medium px-4 py-2">Group</th>
+                <th className="text-left font-medium px-4 py-2">Department</th>
                 <th className="text-left font-medium px-4 py-2">OS account</th>
                 <th className="text-left font-medium px-4 py-2">Status</th>
                 <th className="px-4 py-2"></th>
@@ -97,7 +97,7 @@ export default function PortalEmployees() {
               className="w-full mb-3 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
             {user.role !== 'GROUP_ADMIN' && (
               <>
-                <label className="block text-sm text-gray-600 mb-1">Group</label>
+                <label className="block text-sm text-gray-600 mb-1">Department</label>
                 <select value={form.groupId} onChange={(e) => setForm({ ...form, groupId: e.target.value })}
                   className="w-full mb-4 rounded-lg border border-gray-300 px-3 py-2 text-sm">
                   <option value="">— none —</option>

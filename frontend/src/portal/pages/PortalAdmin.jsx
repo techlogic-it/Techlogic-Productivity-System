@@ -28,13 +28,14 @@ function Reveal({ secret, onClose }) {
   );
 }
 
-// The three company-level login roles offered when inviting a user.
+// Company-level login roles offered when inviting a user.
 const ROLE_OPTIONS = [
   { value: 'ORG_ADMIN', label: 'Admin — full company control' },
-  { value: 'MANAGER', label: 'Manager — all reports + manage staff' },
+  { value: 'MANAGER', label: 'Manager — all departments + manage staff' },
+  { value: 'GROUP_ADMIN', label: 'Department Manager — one department only' },
   { value: 'VIEWER', label: 'Viewer — reports, read-only' },
 ];
-const ROLE_LABEL = { PROVIDER_ADMIN: 'Provider Admin', ORG_ADMIN: 'Admin', MANAGER: 'Manager', GROUP_ADMIN: 'Group Admin', VIEWER: 'Viewer' };
+const ROLE_LABEL = { PROVIDER_ADMIN: 'Provider Admin', ORG_ADMIN: 'Admin', MANAGER: 'Manager', GROUP_ADMIN: 'Department Manager', VIEWER: 'Viewer' };
 
 const EMPTY_COMPANY = { name: '', address: '', phone: '', email: '', website: '', contactName: '', contactEmail: '', contactPhone: '' };
 
@@ -55,7 +56,7 @@ export default function PortalAdmin() {
   const [newCompany, setNewCompany] = useState(EMPTY_COMPANY);
   const [details, setDetails] = useState(EMPTY_COMPANY);
   const [detailsMsg, setDetailsMsg] = useState('');
-  const [newGroup, setNewGroup] = useState('');
+  const [newDept, setNewDept] = useState({ name: '', managerName: '', managerEmail: '' });
   const [invite, setInvite] = useState({ email: '', name: '', role: 'VIEWER', groupId: '' });
   const [person, setPerson] = useState({ displayName: '', groupId: '' });
 
@@ -119,10 +120,21 @@ export default function PortalAdmin() {
       alert(e.response?.data?.error || 'Could not delete the company.');
     }
   };
-  const createGroup = async () => {
-    if (!newGroup.trim()) return;
-    await portalApi.post(`/orgs/organisations/${orgId}/groups`, { name: newGroup.trim() });
-    setNewGroup(''); loadOrg();
+  const addDepartment = async () => {
+    if (!newDept.name.trim()) return;
+    const { data: dept } = await portalApi.post(`/orgs/organisations/${orgId}/groups`, { name: newDept.name.trim() });
+    // Optionally invite a department manager (scoped to this department only).
+    if (newDept.managerName.trim() && newDept.managerEmail.trim()) {
+      const { data } = await portalApi.post(`/orgs/organisations/${orgId}/users`, {
+        name: newDept.managerName.trim(), email: newDept.managerEmail.trim(), role: 'GROUP_ADMIN', groupId: dept.id,
+      });
+      if (data.inviteToken) {
+        const link = `${window.location.origin}/portal/accept-invite?token=${data.inviteToken}`;
+        setSecret({ label: `Invite link for ${data.user.email} — manager of "${dept.name}", send it so they set a password`, value: link });
+      }
+    }
+    setNewDept({ name: '', managerName: '', managerEmail: '' });
+    loadOrg();
   };
   const sendInvite = async () => {
     if (!invite.email || !invite.name) return;
@@ -288,15 +300,30 @@ export default function PortalAdmin() {
         </div>
       </Section>
 
-      <Section title="Groups">
-        <div className="flex gap-2 mb-3">
-          <input placeholder="New group name" value={newGroup} onChange={(e) => setNewGroup(e.target.value)} className={`${input} flex-1`} />
-          <button onClick={createGroup} className="rounded-lg bg-teal-600 text-white px-3 text-sm">Add</button>
+      <Section title="Departments">
+        <div className="grid grid-cols-3 gap-2 mb-2">
+          <input placeholder="Department name *" value={newDept.name} onChange={(e) => setNewDept({ ...newDept, name: e.target.value })} className={input} />
+          <input placeholder="Manager name" value={newDept.managerName} onChange={(e) => setNewDept({ ...newDept, managerName: e.target.value })} className={input} />
+          <input placeholder="Manager email" value={newDept.managerEmail} onChange={(e) => setNewDept({ ...newDept, managerEmail: e.target.value })} className={input} />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {groups.map((g) => <span key={g.id} className="text-xs rounded-full bg-gray-100 text-gray-600 px-2 py-1">{g.name}</span>)}
-          {groups.length === 0 && <span className="text-sm text-gray-400">No groups yet.</span>}
+        <div className="flex items-center gap-2 mb-3">
+          <button onClick={addDepartment} disabled={!newDept.name.trim()} className="rounded-lg bg-teal-600 disabled:opacity-50 text-white px-3 py-1.5 text-sm">Add department</button>
+          <span className="text-xs text-gray-400">A manager (optional) sees only their own department's productivity.</span>
         </div>
+        <table className="w-full text-sm">
+          <tbody>
+            {groups.map((g) => {
+              const mgr = users.find((u) => u.role === 'GROUP_ADMIN' && u.groupId === g.id);
+              return (
+                <tr key={g.id} className="border-t border-gray-100">
+                  <td className="py-2 font-medium text-gray-800">{g.name}</td>
+                  <td className="py-2 text-gray-500">{mgr ? `Manager: ${mgr.name}` : <span className="text-gray-400">No manager</span>}</td>
+                </tr>
+              );
+            })}
+            {groups.length === 0 && <tr><td className="py-2 text-sm text-gray-400">No departments yet.</td></tr>}
+          </tbody>
+        </table>
       </Section>
 
       <Section title="Users (authorised logins)">
@@ -306,14 +333,14 @@ export default function PortalAdmin() {
           <select value={invite.role} onChange={(e) => setInvite({ ...invite, role: e.target.value })} className={`${input} col-span-2`}>
             {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
-          {invite.role === 'VIEWER' && (
+          {(invite.role === 'VIEWER' || invite.role === 'GROUP_ADMIN') && (
             <select value={invite.groupId} onChange={(e) => setInvite({ ...invite, groupId: e.target.value })} className={`${input} col-span-2`}>
-              <option value="">Whole company</option>
-              {groups.map((g) => <option key={g.id} value={g.id}>Only: {g.name}</option>)}
+              <option value="">{invite.role === 'GROUP_ADMIN' ? 'Select department…' : 'Whole company'}</option>
+              {groups.map((g) => <option key={g.id} value={g.id}>{invite.role === 'GROUP_ADMIN' ? g.name : `Only: ${g.name}`}</option>)}
             </select>
           )}
         </div>
-        <button onClick={sendInvite} className="rounded-lg bg-teal-600 text-white px-3 py-1.5 text-sm mb-3">Invite</button>
+        <button onClick={sendInvite} disabled={invite.role === 'GROUP_ADMIN' && !invite.groupId} className="rounded-lg bg-teal-600 disabled:opacity-50 text-white px-3 py-1.5 text-sm mb-3">Invite</button>
         <table className="w-full text-sm">
           <tbody>
             {users.map((u) => (
@@ -346,9 +373,9 @@ export default function PortalAdmin() {
               </div>
             </div>
             <div>
-              <div className="text-xs text-gray-500 mb-1">Default group — new machines (and currently ungrouped users) automatically join this group.</div>
+              <div className="text-xs text-gray-500 mb-1">Default department — new machines (and currently unassigned users) automatically join this department.</div>
               <select value={companyKey.defaultGroupId || ''} onChange={(e) => setDefaultGroup(e.target.value)} className={input}>
-                <option value="">No default group</option>
+                <option value="">No default department</option>
                 {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
               </select>
             </div>
@@ -375,7 +402,7 @@ export default function PortalAdmin() {
         <div className="flex gap-2 mb-3">
           <input placeholder="Person's name" value={person.displayName} onChange={(e) => setPerson({ ...person, displayName: e.target.value })} className={`${input} flex-1`} />
           <select value={person.groupId} onChange={(e) => setPerson({ ...person, groupId: e.target.value })} className={input}>
-            <option value="">No group</option>
+            <option value="">No department</option>
             {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
           <button onClick={addPerson} className="rounded-lg bg-teal-600 text-white px-3 text-sm">Create + code</button>

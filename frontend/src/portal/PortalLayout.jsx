@@ -8,7 +8,7 @@ const ROLE_LABEL = {
   PROVIDER_ADMIN: 'Provider Admin',
   ORG_ADMIN: 'Admin',
   MANAGER: 'Manager',
-  GROUP_ADMIN: 'Group Admin',
+  GROUP_ADMIN: 'Department Manager',
   VIEWER: 'Viewer',
 };
 
