@@ -37,7 +37,7 @@ const ROLE_OPTIONS = [
 ];
 const ROLE_LABEL = { PROVIDER_ADMIN: 'Provider Admin', ORG_ADMIN: 'Admin', MANAGER: 'Manager', GROUP_ADMIN: 'Department Manager', VIEWER: 'Viewer' };
 
-const EMPTY_COMPANY = { name: '', address: '', phone: '', email: '', website: '', contactName: '', contactEmail: '', contactPhone: '' };
+const EMPTY_COMPANY = { name: '', address: '', phone: '', email: '', website: '', contactName: '', contactEmail: '', contactPhone: '', seatLimit: '' };
 
 export default function PortalAdmin() {
   const { user, org } = usePortalAuth();
@@ -77,6 +77,7 @@ export default function PortalAdmin() {
       setDetails({
         name: o.name || '', address: o.address || '', phone: o.phone || '', email: o.email || '',
         website: o.website || '', contactName: o.contactName || '', contactEmail: o.contactEmail || '', contactPhone: o.contactPhone || '',
+        seatLimit: o.seatLimit ?? '',
       });
       setDetailsMsg('');
     }
@@ -244,7 +245,11 @@ export default function PortalAdmin() {
               {orgs.map((o) => (
                 <tr key={o.id} className={`border-b border-gray-50 ${o.id === orgId ? 'bg-teal-50' : 'hover:bg-gray-50'}`}>
                   <td className="py-2 font-medium text-gray-800 cursor-pointer" onClick={() => setOrgId(o.id)}>{o.name}</td>
-                  <td className="py-2 text-right tabular-nums cursor-pointer" onClick={() => setOrgId(o.id)}>{o._count?.employees ?? 0}</td>
+                  <td className="py-2 text-right tabular-nums cursor-pointer" onClick={() => setOrgId(o.id)}>
+                    <span className={o.seatLimit != null && (o.monitoredUserCount ?? 0) >= o.seatLimit ? 'text-red-600 font-semibold' : ''}>
+                      {o.monitoredUserCount ?? 0}{o.seatLimit != null ? ` / ${o.seatLimit}` : ''}
+                    </span>
+                  </td>
                   <td className="py-2 text-right tabular-nums text-gray-600 cursor-pointer" onClick={() => setOrgId(o.id)}>{o.activeDeviceCount ?? 0}</td>
                   <td className="py-2 text-right tabular-nums text-gray-500 cursor-pointer" onClick={() => setOrgId(o.id)}>{o._count?.portalUsers ?? 0}</td>
                   <td className="py-2 text-right whitespace-nowrap">
@@ -295,6 +300,12 @@ export default function PortalAdmin() {
             <span className="block text-xs text-gray-500 mb-1">Contact phone</span>
             <input value={details.contactPhone} onChange={(e) => setDetails({ ...details, contactPhone: e.target.value })} className={`${input} w-full`} />
           </label>
+          {isProvider && (
+            <label className="block col-span-2 border-t border-gray-100 pt-3 mt-1">
+              <span className="block text-xs text-gray-500 mb-1">Licence — max monitored users (seats). Blank = unlimited. New users beyond this aren't monitored until a seat is freed.</span>
+              <input type="number" min="0" placeholder="Unlimited" value={details.seatLimit} onChange={(e) => setDetails({ ...details, seatLimit: e.target.value })} className={`${input} w-40`} />
+            </label>
+          )}
         </div>
         <div className="flex items-center gap-3 mt-4">
           <button onClick={saveDetails} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 text-sm">Save details</button>

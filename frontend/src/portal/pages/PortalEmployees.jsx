@@ -47,6 +47,17 @@ export default function PortalEmployees() {
     load();
   };
 
+  // Remove frees a licence seat (their PC stops being monitored); restore takes one.
+  const setActive = async (e, isActive) => {
+    if (!isActive && !window.confirm(`Remove "${e.displayName || e.localAccountKey}" from monitoring? This frees a licence seat and their PC stops being monitored.`)) return;
+    try {
+      await portalApi.patch(`/monitoring/employees/${e.id}`, { isActive });
+      load();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Could not update.');
+    }
+  };
+
   return (
     <div className="max-w-5xl">
       <h1 className="text-xl font-bold text-gray-800 mb-5">People</h1>
@@ -68,18 +79,27 @@ export default function PortalEmployees() {
             </thead>
             <tbody>
               {employees.map((e) => (
-                <tr key={e.id} className="border-t border-gray-100">
+                <tr key={e.id} className={`border-t border-gray-100 ${e.isActive === false ? 'opacity-50' : ''}`}>
                   <td className="px-4 py-2 font-medium text-gray-800">{e.displayName || <span className="text-gray-400">Unnamed</span>}</td>
                   <td className="px-4 py-2 text-gray-600">{e.group?.name || '—'}</td>
                   <td className="px-4 py-2 text-gray-500 font-mono text-xs">{e.localAccountKey || '—'}</td>
                   <td className="px-4 py-2">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${CLAIM_BADGE[e.claimStatus] || 'bg-gray-100'}`}>
-                      {e.claimStatus}
-                    </span>
+                    {e.isActive === false ? (
+                      <span className="inline-block rounded-full px-2 py-0.5 text-xs font-semibold bg-gray-200 text-gray-600">Removed (seat freed)</span>
+                    ) : (
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${CLAIM_BADGE[e.claimStatus] || 'bg-gray-100'}`}>{e.claimStatus}</span>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right whitespace-nowrap">
-                    <button onClick={() => navigate(`/portal/employees/${e.id}`)} className="text-teal-700 hover:underline mr-3">View</button>
-                    <button onClick={() => startMap(e)} className="text-gray-600 hover:underline">Map</button>
+                    {e.isActive === false ? (
+                      <button onClick={() => setActive(e, true)} className="text-teal-700 hover:underline">Restore</button>
+                    ) : (
+                      <>
+                        <button onClick={() => navigate(`/portal/employees/${e.id}`)} className="text-teal-700 hover:underline mr-3">View</button>
+                        <button onClick={() => startMap(e)} className="text-gray-600 hover:underline mr-3">Map</button>
+                        <button onClick={() => setActive(e, false)} className="text-red-600 hover:underline">Remove</button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -137,7 +137,14 @@ router.get(
       _count: { _all: true },
     });
     const activeByOrg = Object.fromEntries(active.map((a) => [a.organisationId, a._count._all]));
-    res.json(orgs.map((o) => ({ ...o, activeDeviceCount: activeByOrg[o.id] || 0 })));
+    // Active monitored-user count per org (the seat-limit usage figure).
+    const activeEmp = await prisma.monitoredEmployee.groupBy({
+      by: ['organisationId'],
+      where: { isActive: true, organisationId: { in: orgs.map((o) => o.id) } },
+      _count: { _all: true },
+    });
+    const empByOrg = Object.fromEntries(activeEmp.map((a) => [a.organisationId, a._count._all]));
+    res.json(orgs.map((o) => ({ ...o, activeDeviceCount: activeByOrg[o.id] || 0, monitoredUserCount: empByOrg[o.id] || 0 })));
   }),
 );
 
@@ -170,6 +177,15 @@ router.patch(
       const name = String(req.body.name).trim();
       if (!name) return res.status(400).json({ error: 'name cannot be empty' });
       data.name = name;
+    }
+    // Seat limit (licensing) is provider-only; org admins can't change their own.
+    if (req.body?.seatLimit !== undefined && req.portalUser.role === 'PROVIDER_ADMIN') {
+      const raw = req.body.seatLimit;
+      const n = raw === null || raw === '' ? null : Number(raw);
+      if (n !== null && (!Number.isInteger(n) || n < 0)) {
+        return res.status(400).json({ error: 'seatLimit must be a non-negative whole number (or blank for unlimited)' });
+      }
+      data.seatLimit = n;
     }
     if (Object.keys(data).length === 0) return res.status(400).json({ error: 'Nothing to update' });
     const org = await prisma.organisation.update({ where: { id: req.params.id }, data });
@@ -570,6 +586,15 @@ router.post(
     }
     const displayName = String(req.body?.displayName || '').trim();
     if (!displayName) return res.status(400).json({ error: 'displayName is required' });
+
+    // Seat limit (licensing): pre-creating a person reserves a seat.
+    const org = await prisma.organisation.findUnique({ where: { id: req.params.id }, select: { seatLimit: true } });
+    if (org?.seatLimit != null) {
+      const active = await prisma.monitoredEmployee.count({ where: { organisationId: req.params.id, isActive: true } });
+      if (active >= org.seatLimit) {
+        return res.status(409).json({ error: `Seat limit reached (${org.seatLimit}). Remove a monitored user to free a seat.` });
+      }
+    }
 
     // A group admin can only create within their own group.
     let groupId = req.body?.groupId || null;

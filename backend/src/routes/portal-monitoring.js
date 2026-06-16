@@ -387,7 +387,17 @@ router.patch(
     const { displayName, isActive } = req.body || {};
     const data = {};
     if (displayName !== undefined) data.displayName = displayName?.trim() || null;
-    if (isActive !== undefined) data.isActive = !!isActive;
+    if (isActive !== undefined) {
+      // Reactivating a removed user takes a seat — enforce the company limit.
+      if (isActive && !target.isActive && target.organisationId) {
+        const org = await prisma.organisation.findUnique({ where: { id: target.organisationId }, select: { seatLimit: true } });
+        if (org?.seatLimit != null) {
+          const active = await prisma.monitoredEmployee.count({ where: { organisationId: target.organisationId, isActive: true } });
+          if (active >= org.seatLimit) return res.status(409).json({ error: `Seat limit reached (${org.seatLimit}). Remove a monitored user first.` });
+        }
+      }
+      data.isActive = !!isActive;
+    }
     if (req.body?.groupId !== undefined) {
       if (req.portalUser.role === 'GROUP_ADMIN') data.groupId = req.portalUser.groupId;
       else data.groupId = req.body.groupId || null;

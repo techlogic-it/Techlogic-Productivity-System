@@ -35,6 +35,8 @@ model Organisation {
   contactName  String? // key person
   contactEmail String?
   contactPhone String?
+  // Licensing: max ACTIVE monitored users (seats). null = unlimited. Provider-set.
+  seatLimit    Int?
   // Optional link to the MSP Customer record for internal cross-sell/billing.
   customerId String?
   createdAt  DateTime  @default(now())

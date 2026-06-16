@@ -167,14 +167,25 @@ async function resolveEmployee(device, employee, localKey) {
   }
 
   // Path B â€” capture-then-map (product): key by tenant-scoped OS account.
-  return prisma.monitoredEmployee.upsert({
+  const existing = await prisma.monitoredEmployee.findUnique({
     where: { organisationId_localAccountKey: { organisationId: orgId, localAccountKey: localKey } },
-    update: {
-      displayName: employee?.displayName ?? undefined,
-      upn: employee?.upn ?? undefined,
-      primaryDeviceId: device.id,
-    },
-    create: {
+  });
+  if (existing) {
+    // A removed (deactivated) user stops being monitored and frees its seat.
+    if (!existing.isActive) return null;
+    return prisma.monitoredEmployee.update({
+      where: { id: existing.id },
+      data: { displayName: employee?.displayName ?? undefined, upn: employee?.upn ?? undefined, primaryDeviceId: device.id },
+    });
+  }
+  // New monitored user â€” enforce the company seat limit (licensing).
+  const org = await prisma.organisation.findUnique({ where: { id: orgId }, select: { seatLimit: true } });
+  if (org?.seatLimit != null) {
+    const activeCount = await prisma.monitoredEmployee.count({ where: { organisationId: orgId, isActive: true } });
+    if (activeCount >= org.seatLimit) return null; // at seat limit â€” not monitored
+  }
+  return prisma.monitoredEmployee.create({
+    data: {
       organisationId: orgId,
       groupId: device.defaultGroupId,
       localAccountKey: localKey,
@@ -207,6 +218,16 @@ router.post('/ingest', authenticateAgent, asyncHandler(async (req, res) => {
   }
 
   const emp = await resolveEmployee(device, employee, localKey);
+  if (!emp) {
+    // Over the company's seat limit (or a removed user): accept the upload but
+    // store nothing, so the agent clears its spool and this user simply isn't
+    // monitored until a seat is freed.
+    await prisma.monitoredDevice.update({
+      where: { id: device.id },
+      data: { lastSeenAt: new Date(), agentVersion: agentVersion ?? undefined },
+    });
+    return res.json({ acceptedEvents: 0, acceptedSessionEvents: 0, notMonitored: true });
+  }
 
   // Build a processName â†’ app catalogue map for appId tagging.
   const apps = await prisma.monitoredApp.findMany();
