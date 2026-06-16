@@ -59,6 +59,8 @@ export default function PortalAdmin() {
   const [invite, setInvite] = useState({ email: '', name: '', role: 'VIEWER', groupId: '' });
   const [editUser, setEditUser] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', role: 'VIEWER', groupId: '' });
+  const [editDept, setEditDept] = useState(null);
+  const [editDeptForm, setEditDeptForm] = useState({ name: '', managerUserId: '' });
 
   const loadOrgs = useCallback(async () => {
     const r = await portalApi.get('/orgs/organisations');
@@ -150,6 +152,31 @@ export default function PortalAdmin() {
     const { data } = await portalApi.post(`/orgs/organisations/${orgId}/users/${u.id}/invite`);
     const link = `${window.location.origin}/portal/accept-invite?token=${data.inviteToken}`;
     setSecret({ label: `Invite link for ${u.email} — send it so they set a password`, value: link });
+  };
+  const startEditDept = (g) => {
+    const mgr = users.find((u) => u.role === 'GROUP_ADMIN' && u.groupId === g.id);
+    setEditDept(g);
+    setEditDeptForm({ name: g.name || '', managerUserId: mgr ? mgr.id : '' });
+  };
+  const saveDept = async () => {
+    try {
+      const name = editDeptForm.name.trim();
+      if (name && name !== editDept.name) {
+        await portalApi.patch(`/orgs/organisations/${orgId}/groups/${editDept.id}`, { name });
+      }
+      const currentMgr = users.find((u) => u.role === 'GROUP_ADMIN' && u.groupId === editDept.id);
+      if ((currentMgr?.id || '') !== editDeptForm.managerUserId) {
+        await portalApi.put(`/orgs/organisations/${orgId}/groups/${editDept.id}/manager`, { userId: editDeptForm.managerUserId || null });
+      }
+      setEditDept(null); loadOrg();
+    } catch (e) { alert(e.response?.data?.error || 'Could not save'); }
+  };
+  const deleteDept = async () => {
+    if (!window.confirm(`Delete department "${editDept.name}"?\n\nIts people move to "no department" and a department manager becomes a viewer. This cannot be undone.`)) return;
+    try {
+      await portalApi.delete(`/orgs/organisations/${orgId}/groups/${editDept.id}`);
+      setEditDept(null); loadOrg();
+    } catch (e) { alert(e.response?.data?.error || 'Could not delete'); }
   };
   const startEditUser = (u) => { setEditUser(u); setEditForm({ name: u.name || '', role: u.role, groupId: u.groupId || '' }); };
   const saveUser = async () => {
@@ -339,6 +366,9 @@ export default function PortalAdmin() {
                 <tr key={g.id} className="border-t border-gray-100">
                   <td className="py-2 font-medium text-gray-800">{g.name}</td>
                   <td className="py-2 text-gray-500">{mgr ? `Manager: ${mgr.name}` : <span className="text-gray-400">No manager</span>}</td>
+                  <td className="py-2 text-right">
+                    <button onClick={() => startEditDept(g)} className="text-xs text-gray-600 hover:underline">Edit</button>
+                  </td>
                 </tr>
               );
             })}
@@ -441,6 +471,29 @@ export default function PortalAdmin() {
             <div className="flex justify-end gap-2">
               <button onClick={() => setEditUser(null)} className="px-3 py-1.5 text-sm text-gray-600">Cancel</button>
               <button onClick={saveUser} disabled={editForm.role === 'GROUP_ADMIN' && !editForm.groupId} className="px-3 py-1.5 text-sm rounded-lg bg-teal-600 disabled:opacity-50 text-white">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editDept && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4" onClick={() => setEditDept(null)}>
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-5" onClick={(ev) => ev.stopPropagation()}>
+            <div className="font-semibold text-gray-800 mb-3">Edit department</div>
+            <label className="block text-sm text-gray-600 mb-1">Name</label>
+            <input value={editDeptForm.name} onChange={(e) => setEditDeptForm({ ...editDeptForm, name: e.target.value })} className={`${input} w-full mb-3`} />
+            <label className="block text-sm text-gray-600 mb-1">Manager</label>
+            <select value={editDeptForm.managerUserId} onChange={(e) => setEditDeptForm({ ...editDeptForm, managerUserId: e.target.value })} className={`${input} w-full mb-1`}>
+              <option value="">No manager</option>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
+            </select>
+            <div className="text-xs text-gray-400 mb-4">The manager sees only this department's productivity. Switching managers makes the previous one a department viewer.</div>
+            <div className="flex justify-between items-center">
+              <button onClick={deleteDept} className="px-3 py-1.5 text-sm text-red-600 hover:underline">Delete</button>
+              <div className="flex gap-2">
+                <button onClick={() => setEditDept(null)} className="px-3 py-1.5 text-sm text-gray-600">Cancel</button>
+                <button onClick={saveDept} disabled={!editDeptForm.name.trim()} className="px-3 py-1.5 text-sm rounded-lg bg-teal-600 disabled:opacity-50 text-white">Save</button>
+              </div>
             </div>
           </div>
         </div>

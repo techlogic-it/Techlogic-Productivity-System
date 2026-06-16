@@ -267,6 +267,70 @@ router.get(
   }),
 );
 
+// Rename a department.
+router.patch(
+  '/organisations/:id/groups/:groupId',
+  requirePortalRole('ORG_ADMIN'),
+  asyncHandler(async (req, res) => {
+    if (!canAccessOrg(req.portalUser, req.params.id)) return res.status(403).json({ error: 'Forbidden' });
+    const group = await prisma.group.findFirst({ where: { id: req.params.groupId, organisationId: req.params.id } });
+    if (!group) return res.status(404).json({ error: 'Department not found' });
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    try {
+      res.json(await prisma.group.update({ where: { id: group.id }, data: { name } }));
+    } catch (e) {
+      if (e.code === 'P2002') return res.status(409).json({ error: 'A department with that name already exists' });
+      throw e;
+    }
+  }),
+);
+
+// Delete a department: members fall back to no department; a department manager is
+// demoted to a department viewer; the company key's default is cleared if it pointed here.
+router.delete(
+  '/organisations/:id/groups/:groupId',
+  requirePortalRole('ORG_ADMIN'),
+  asyncHandler(async (req, res) => {
+    if (!canAccessOrg(req.portalUser, req.params.id)) return res.status(403).json({ error: 'Forbidden' });
+    const group = await prisma.group.findFirst({ where: { id: req.params.groupId, organisationId: req.params.id } });
+    if (!group) return res.status(404).json({ error: 'Department not found' });
+    await prisma.$transaction([
+      prisma.portalUser.updateMany({ where: { groupId: group.id, role: 'GROUP_ADMIN' }, data: { role: 'VIEWER', groupId: null } }),
+      prisma.portalUser.updateMany({ where: { groupId: group.id }, data: { groupId: null } }),
+      prisma.monitoredEmployee.updateMany({ where: { groupId: group.id }, data: { groupId: null } }),
+      prisma.enrollmentKey.updateMany({ where: { defaultGroupId: group.id }, data: { defaultGroupId: null } }),
+      prisma.group.delete({ where: { id: group.id } }),
+    ]);
+    res.json({ ok: true });
+  }),
+);
+
+// Set (or clear) a department's manager. Demotes the current manager(s) to a
+// department viewer; promotes the chosen user to Department Manager.
+router.put(
+  '/organisations/:id/groups/:groupId/manager',
+  requirePortalRole('ORG_ADMIN'),
+  asyncHandler(async (req, res) => {
+    if (!canAccessOrg(req.portalUser, req.params.id)) return res.status(403).json({ error: 'Forbidden' });
+    const group = await prisma.group.findFirst({ where: { id: req.params.groupId, organisationId: req.params.id } });
+    if (!group) return res.status(404).json({ error: 'Department not found' });
+    const userId = req.body?.userId || null;
+    if (userId) {
+      const u = await prisma.portalUser.findFirst({ where: { id: userId, organisationId: req.params.id } });
+      if (!u) return res.status(400).json({ error: 'User is not in this company' });
+    }
+    await prisma.portalUser.updateMany({
+      where: { organisationId: req.params.id, role: 'GROUP_ADMIN', groupId: group.id, ...(userId ? { id: { not: userId } } : {}) },
+      data: { role: 'VIEWER' }, // keep groupId → a department-scoped viewer
+    });
+    if (userId) {
+      await prisma.portalUser.update({ where: { id: userId }, data: { role: 'GROUP_ADMIN', groupId: group.id } });
+    }
+    res.json({ ok: true });
+  }),
+);
+
 // ── Enrolment keys (the installer carries one of these) ──────────────────────
 
 router.post(
