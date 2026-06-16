@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import portalApi from '../portalApi';
 import { usePortalAuth } from '../PortalAuthContext';
 import { fmtDur, fmtDateInput, pctColour } from '../portalUtils';
+import { isProvider as isProviderRole } from '../PortalAuthContext';
+import PortalProviderDashboard from './PortalProviderDashboard';
 
 // Bucket a date-only summary into a day/week/month key + short label, without
 // timezone drift (summaryDate is UTC midnight; we read the calendar parts directly).
@@ -93,7 +95,8 @@ function rangeFor(preset) {
   return [null, null];
 }
 
-export default function PortalDashboard() {
+// A company's own productivity dashboard (org admins / managers / viewers).
+function CompanyDashboard() {
   const navigate = useNavigate();
   const { user, org } = usePortalAuth();
   const canFilterDept = org?.id && (user.role === 'ORG_ADMIN' || user.role === 'MANAGER');
@@ -248,4 +251,11 @@ export default function PortalDashboard() {
       </div>
     </div>
   );
+}
+
+// Providers get a business overview instead of a company's productivity report.
+export default function PortalDashboard() {
+  const { user } = usePortalAuth();
+  if (isProviderRole(user.role)) return <PortalProviderDashboard />;
+  return <CompanyDashboard />;
 }

@@ -37,7 +37,7 @@ const ROLE_OPTIONS = [
 ];
 const ROLE_LABEL = { PROVIDER_ADMIN: 'Provider Admin', ORG_ADMIN: 'Admin', MANAGER: 'Manager', GROUP_ADMIN: 'Department Manager', VIEWER: 'Viewer' };
 
-const EMPTY_COMPANY = { name: '', address: '', phone: '', email: '', website: '', contactName: '', contactEmail: '', contactPhone: '', seatLimit: '' };
+const EMPTY_COMPANY = { name: '', address: '', phone: '', email: '', website: '', contactName: '', contactEmail: '', contactPhone: '', seatLimit: '', pricePerSeat: '', flatMonthlyFee: '', renewalDate: '' };
 
 export default function PortalAdmin() {
   const { user, org } = usePortalAuth();
@@ -83,6 +83,8 @@ export default function PortalAdmin() {
         name: o.name || '', address: o.address || '', phone: o.phone || '', email: o.email || '',
         website: o.website || '', contactName: o.contactName || '', contactEmail: o.contactEmail || '', contactPhone: o.contactPhone || '',
         seatLimit: o.seatLimit ?? '',
+        pricePerSeat: o.pricePerSeat ?? '', flatMonthlyFee: o.flatMonthlyFee ?? '',
+        renewalDate: o.renewalDate ? o.renewalDate.slice(0, 10) : '',
       });
       setDetailsMsg('');
     }
@@ -343,6 +345,29 @@ export default function PortalAdmin() {
               <span className="block text-xs text-gray-500 mb-1">Licence — max monitored users (seats). Blank = unlimited. New users beyond this aren't monitored until a seat is freed.</span>
               <input type="number" min="0" placeholder="Unlimited" value={details.seatLimit} onChange={(e) => setDetails({ ...details, seatLimit: e.target.value })} className={`${input} w-40`} />
             </label>
+          )}
+          {canManageSeats && (
+            <div className="col-span-2 grid grid-cols-3 gap-3">
+              <label className="block">
+                <span className="block text-xs text-gray-500 mb-1">Price per seat (£/month)</span>
+                <input type="number" min="0" step="0.01" placeholder="—" value={details.pricePerSeat} onChange={(e) => setDetails({ ...details, pricePerSeat: e.target.value })} className={`${input} w-full`} />
+              </label>
+              {(details.seatLimit === '' || details.seatLimit == null) && (
+                <label className="block">
+                  <span className="block text-xs text-gray-500 mb-1">Flat fee (£/month, unlimited seats)</span>
+                  <input type="number" min="0" step="0.01" placeholder="—" value={details.flatMonthlyFee} onChange={(e) => setDetails({ ...details, flatMonthlyFee: e.target.value })} className={`${input} w-full`} />
+                </label>
+              )}
+              <label className="block">
+                <span className="block text-xs text-gray-500 mb-1">Renewal date</span>
+                <input type="date" value={details.renewalDate} onChange={(e) => setDetails({ ...details, renewalDate: e.target.value })} className={`${input} w-full`} />
+              </label>
+              <div className="col-span-3 text-xs text-gray-400">
+                {details.seatLimit !== '' && details.pricePerSeat !== ''
+                  ? `Monthly revenue = £${(Number(details.pricePerSeat) * Number(details.seatLimit)).toLocaleString('en-GB')} (£${details.pricePerSeat}/seat × ${details.seatLimit} licences).`
+                  : 'Monthly revenue = price per seat × licences (or the flat fee when seats are unlimited).'}
+              </div>
+            </div>
           )}
         </div>
         {!isReadOnly && (

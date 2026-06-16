@@ -39,6 +39,11 @@ model Organisation {
   contactPhone String?
   // Licensing: max ACTIVE monitored users (seats). null = unlimited. Provider-set.
   seatLimit    Int?
+  // Billing (provider-set). Monthly £ per seat → revenue = pricePerSeat × seatLimit.
+  // flatMonthlyFee is the fallback monthly £ for unlimited-seat companies.
+  pricePerSeat   Float?
+  flatMonthlyFee Float?
+  renewalDate    DateTime? // when the licence is next up for renewal
   // Optional link to the MSP Customer record for internal cross-sell/billing.
   customerId String?
   createdAt  DateTime  @default(now())

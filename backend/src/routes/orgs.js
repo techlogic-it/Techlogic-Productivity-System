@@ -165,7 +165,19 @@ router.get(
       _count: { _all: true },
     });
     const empByOrg = Object.fromEntries(activeEmp.map((a) => [a.organisationId, a._count._all]));
-    res.json(orgs.map((o) => ({ ...o, activeDeviceCount: activeByOrg[o.id] || 0, monitoredUserCount: empByOrg[o.id] || 0 })));
+    // Monthly revenue = price/seat × licences (seat limit); unlimited-seat companies
+    // use the flat fee. null = not priced yet.
+    const monthlyRevenueOf = (o) => {
+      if (o.seatLimit != null && o.pricePerSeat != null) return o.pricePerSeat * o.seatLimit;
+      if (o.seatLimit == null && o.flatMonthlyFee != null) return o.flatMonthlyFee;
+      return null;
+    };
+    res.json(orgs.map((o) => ({
+      ...o,
+      activeDeviceCount: activeByOrg[o.id] || 0,
+      monitoredUserCount: empByOrg[o.id] || 0,
+      monthlyRevenue: monthlyRevenueOf(o),
+    })));
   }),
 );
 
@@ -207,6 +219,29 @@ router.patch(
         return res.status(400).json({ error: 'seatLimit must be a non-negative whole number (or blank for unlimited)' });
       }
       data.seatLimit = n;
+    }
+    // Billing (price per seat, flat fee, renewal date) is provider-set too.
+    if (req.portalUser.role === 'PROVIDER_ADMIN' || req.portalUser.role === 'PROVIDER_SUPPORT') {
+      for (const f of ['pricePerSeat', 'flatMonthlyFee']) {
+        if (req.body?.[f] !== undefined) {
+          const raw = req.body[f];
+          const n = raw === null || raw === '' ? null : Number(raw);
+          if (n !== null && (!Number.isFinite(n) || n < 0)) {
+            return res.status(400).json({ error: `${f} must be a non-negative amount (or blank)` });
+          }
+          data[f] = n;
+        }
+      }
+      if (req.body?.renewalDate !== undefined) {
+        const raw = req.body.renewalDate;
+        if (raw === null || raw === '') {
+          data.renewalDate = null;
+        } else {
+          const d = new Date(raw);
+          if (Number.isNaN(d.getTime())) return res.status(400).json({ error: 'renewalDate is not a valid date' });
+          data.renewalDate = d;
+        }
+      }
     }
     if (Object.keys(data).length === 0) return res.status(400).json({ error: 'Nothing to update' });
     const org = await prisma.organisation.update({ where: { id: req.params.id }, data });
