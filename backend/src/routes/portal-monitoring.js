@@ -502,7 +502,7 @@ router.post(
       type,
       sentTo: req.portalUser.email,
       emailConfigured,
-      mode: result.mode, // 'smtp' when a provider is wired, 'logmode' until then
+      mode: result.mode, // 'resend' when the key is set, 'logmode' until then, 'error' on failure
     });
   }),
 );

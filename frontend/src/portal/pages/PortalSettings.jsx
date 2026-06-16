@@ -86,9 +86,11 @@ export default function PortalSettings() {
     setTestMsg('Sending…');
     try {
       const { data } = await portalApi.post(`/monitoring/digests/test?type=${type}${orgId ? `&organisationId=${orgId}` : ''}`);
-      setTestMsg(data.mode === 'smtp'
+      setTestMsg(data.mode === 'resend'
         ? `Sent a ${type} test to ${data.sentTo}.`
-        : `Rendered a ${type} test to the server log (no email provider connected yet — set SMTP to send for real).`);
+        : data.mode === 'error'
+        ? 'Email provider returned an error — check the server logs.'
+        : `Rendered a ${type} test to the server log (no email provider connected yet — set RESEND_API_KEY to send for real).`);
     } catch (e) { setTestMsg(e.response?.data?.error || 'Could not send test'); }
   };
 
