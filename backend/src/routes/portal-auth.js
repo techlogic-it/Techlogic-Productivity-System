@@ -82,7 +82,7 @@ router.get(
     if (req.portalUser.organisationId) {
       ctx.organisation = await prisma.organisation.findUnique({
         where: { id: req.portalUser.organisationId },
-        select: { id: true, name: true, slug: true, status: true },
+        select: { id: true, name: true, slug: true, status: true, seatLimit: true },
       });
     }
     if (req.portalUser.groupId) {

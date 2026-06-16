@@ -176,6 +176,7 @@ export default function PortalAdmin() {
     loadOrg(); // refresh people — ungrouped users were back-filled into the group
   };
   const input = 'rounded-lg border border-gray-300 px-3 py-2 text-sm';
+  const selectedOrg = orgs.find((o) => o.id === orgId);
   const field = (label, key, type = 'text') => (
     <label className="block">
       <span className="block text-xs text-gray-500 mb-1">{label}</span>
@@ -186,7 +187,14 @@ export default function PortalAdmin() {
   return (
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-5">
-        <h1 className="text-xl font-bold text-gray-800">Admin</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold text-gray-800">Admin</h1>
+          {selectedOrg?.seatLimit != null && (
+            <span className={`text-sm font-medium rounded-lg px-3 py-1 ${(selectedOrg.monitoredUserCount ?? 0) >= selectedOrg.seatLimit ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+              {selectedOrg.monitoredUserCount ?? 0} of {selectedOrg.seatLimit} seats used
+            </span>
+          )}
+        </div>
         {isProvider && orgs.length > 0 && (
           <select value={orgId} onChange={(e) => setOrgId(e.target.value)} className={input}>
             {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}

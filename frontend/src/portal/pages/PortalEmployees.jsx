@@ -20,7 +20,11 @@ export default function PortalEmployees() {
   const [showRemoved, setShowRemoved] = useState(false);
 
   const removedCount = employees.filter((e) => e.isActive === false).length;
+  const usedSeats = employees.length - removedCount;
   const visible = showRemoved ? employees : employees.filter((e) => e.isActive !== false);
+  // Seat usage only makes sense for whole-company roles (their list is the whole org).
+  const showSeats = org?.seatLimit != null && (user.role === 'ORG_ADMIN' || user.role === 'MANAGER');
+  const atLimit = showSeats && usedSeats >= org.seatLimit;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,12 +70,19 @@ export default function PortalEmployees() {
     <div className="max-w-5xl">
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-gray-800">People</h1>
-        {removedCount > 0 && (
-          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-            <input type="checkbox" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} />
-            Show removed ({removedCount})
-          </label>
-        )}
+        <div className="flex items-center gap-4">
+          {showSeats && (
+            <span className={`text-sm font-medium rounded-lg px-3 py-1 ${atLimit ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+              {usedSeats} of {org.seatLimit} seats used{atLimit ? ' — limit reached' : ''}
+            </span>
+          )}
+          {removedCount > 0 && (
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+              <input type="checkbox" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} />
+              Show removed ({removedCount})
+            </label>
+          )}
+        </div>
       </div>
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         {loading ? (
