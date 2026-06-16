@@ -339,9 +339,11 @@ router.get(
 );
 
 // Rotate the company key (old key stops working immediately on next enrol).
+// Provider-only: an org admin rotating it would break every installer already
+// deployed for that company.
 router.post(
   '/organisations/:id/enrollment-key/regenerate',
-  requirePortalRole('ORG_ADMIN'),
+  requirePortalRole('PROVIDER_ADMIN'),
   asyncHandler(async (req, res) => {
     if (!canAccessOrg(req.portalUser, req.params.id)) {
       return res.status(403).json({ error: 'Forbidden' });

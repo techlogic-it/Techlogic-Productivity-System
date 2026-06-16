@@ -150,7 +150,7 @@ export default function PortalAdmin() {
     setSecret({ label: `Invite link for ${u.email} — send it so they set a password`, value: link });
   };
   const regenerateKey = async () => {
-    if (!window.confirm('Regenerate the company key? The current key stops working immediately and any installer using it must be updated.')) return;
+    if (!window.confirm('Regenerate the company key?\n\nThe current key stops working IMMEDIATELY. Every installer (.bat) already handed out for this company will stop being able to enrol new machines until you re-issue it. Already-enrolled agents keep working.\n\nAre you sure?')) return;
     const { data } = await portalApi.post(`/orgs/organisations/${orgId}/enrollment-key/regenerate`);
     setCompanyKey(data);
   };
@@ -388,10 +388,12 @@ export default function PortalAdmin() {
                 <button onClick={downloadUninstaller} className="rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 text-sm">Download uninstaller (.bat)</button>
               </div>
             </div>
-            <div className="flex items-center gap-3 pt-1 border-t border-gray-100">
-              <button onClick={regenerateKey} className="mt-3 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 px-3 py-1.5 text-sm">Regenerate key</button>
-              <span className="mt-3 text-xs text-gray-400">Rotating immediately invalidates the old key; update any deployed installer.</span>
-            </div>
+            {isProvider && (
+              <div className="flex items-center gap-3 pt-1 border-t border-gray-100">
+                <button onClick={regenerateKey} className="mt-3 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 px-3 py-1.5 text-sm">Regenerate key</button>
+                <span className="mt-3 text-xs text-gray-400">Provider-only. Rotating immediately invalidates the old key; every deployed installer must be re-issued.</span>
+              </div>
+            )}
           </div>
         )}
       </Section>
