@@ -173,9 +173,17 @@ async function resolveEmployee(device, employee, localKey) {
   if (existing) {
     // A removed (deactivated) user stops being monitored and frees its seat.
     if (!existing.isActive) return null;
+    // Once an admin has named/mapped this person (CLAIMED), their manual name is
+    // authoritative — don't let the agent's OS-derived name overwrite it on every
+    // upload. While still UNMAPPED, keep refreshing the captured OS name.
+    const keepName = existing.claimStatus === 'CLAIMED';
     return prisma.monitoredEmployee.update({
       where: { id: existing.id },
-      data: { displayName: employee?.displayName ?? undefined, upn: employee?.upn ?? undefined, primaryDeviceId: device.id },
+      data: {
+        displayName: keepName ? undefined : (employee?.displayName ?? undefined),
+        upn: employee?.upn ?? undefined,
+        primaryDeviceId: device.id,
+      },
     });
   }
   // New monitored user â€” enforce the company seat limit (licensing).
