@@ -37,7 +37,7 @@ const ROLE_OPTIONS = [
 ];
 const ROLE_LABEL = { PROVIDER_ADMIN: 'Provider Admin', ORG_ADMIN: 'Admin', MANAGER: 'Manager', GROUP_ADMIN: 'Department Manager', VIEWER: 'Viewer' };
 
-const EMPTY_COMPANY = { name: '', address: '', phone: '', email: '', website: '', contactName: '', contactEmail: '', contactPhone: '', seatLimit: '', pricePerSeat: '', flatMonthlyFee: '', renewalDate: '' };
+const EMPTY_COMPANY = { name: '', address: '', phone: '', email: '', website: '', contactName: '', contactEmail: '', contactPhone: '', seatLimit: '', pricePerSeat: '', flatMonthlyFee: '', renewalDate: '', adminName: '', adminEmail: '' };
 
 export default function PortalAdmin() {
   const { user, org } = usePortalAuth();
@@ -60,6 +60,7 @@ export default function PortalAdmin() {
   const [detailsMsg, setDetailsMsg] = useState('');
   const [newDept, setNewDept] = useState({ name: '', managerName: '', managerEmail: '' });
   const [invite, setInvite] = useState({ email: '', name: '', role: 'VIEWER', groupId: '' });
+  const [newAdmin, setNewAdmin] = useState({ name: '', email: '' });
   const [editUser, setEditUser] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', role: 'VIEWER', groupId: '' });
   const [editDept, setEditDept] = useState(null);
@@ -104,9 +105,41 @@ export default function PortalAdmin() {
 
   const createCompany = async () => {
     if (!newCompany.name.trim()) return;
-    const { data } = await portalApi.post('/orgs/organisations', newCompany);
-    setNewCompany(EMPTY_COMPANY); setShowNew(false);
-    await loadOrgs(); setOrgId(data.id);
+    try {
+      const { adminName, adminEmail, ...companyFields } = newCompany;
+      const { data: company } = await portalApi.post('/orgs/organisations', companyFields);
+      // Bootstrap the company's first admin login (provider can't manage their
+      // users afterwards, so this is where the main admin is created).
+      if (adminName.trim() && adminEmail.trim()) {
+        const { data } = await portalApi.post(`/orgs/organisations/${company.id}/users`, {
+          name: adminName.trim(), email: adminEmail.trim(), role: 'ORG_ADMIN',
+        });
+        if (data.inviteToken) {
+          const link = `${window.location.origin}/portal/accept-invite?token=${data.inviteToken}`;
+          setSecret({ label: `Admin login for ${data.user.email} at "${company.name}" — send this link so they set a password and sign in`, value: link });
+        }
+      }
+      setNewCompany(EMPTY_COMPANY); setShowNew(false);
+      await loadOrgs(); setOrgId(company.id);
+    } catch (e) {
+      alert(e.response?.data?.error || 'Could not create the company.');
+    }
+  };
+  const createAdmin = async () => {
+    if (!newAdmin.name.trim() || !newAdmin.email.trim()) return;
+    try {
+      const { data } = await portalApi.post(`/orgs/organisations/${orgId}/users`, {
+        name: newAdmin.name.trim(), email: newAdmin.email.trim(), role: 'ORG_ADMIN',
+      });
+      if (data.inviteToken) {
+        const link = `${window.location.origin}/portal/accept-invite?token=${data.inviteToken}`;
+        setSecret({ label: `Admin login for ${data.user.email} — send this link so they set a password and sign in`, value: link });
+      }
+      setNewAdmin({ name: '', email: '' });
+      loadOrg();
+    } catch (e) {
+      alert(e.response?.data?.error || 'Could not create the admin login.');
+    }
   };
   const saveDetails = async () => {
     setDetailsMsg('');
@@ -275,8 +308,12 @@ export default function PortalAdmin() {
                 {field('Contact name', 'contactName')}
                 {field('Contact email', 'contactEmail', 'email')}
                 {field('Contact phone', 'contactPhone')}
+                <div className="col-span-2 text-xs font-medium text-gray-500 mt-1 border-t border-gray-200 pt-3">Company admin login — they manage the company's own people & departments</div>
+                {field('Admin name', 'adminName')}
+                {field('Admin email', 'adminEmail', 'email')}
               </div>
               <button onClick={createCompany} disabled={!newCompany.name.trim()} className="mt-4 rounded-lg bg-teal-600 disabled:opacity-50 text-white px-4 py-2 text-sm">Create company</button>
+              <p className="mt-2 text-xs text-gray-400">If you fill in the admin, you'll get a one-time invite link to send them so they can set their password and sign in.</p>
             </div>
           )}
           <table className="w-full text-sm">
@@ -459,6 +496,18 @@ export default function PortalAdmin() {
       {isProvider && (
         <Section title="Company logins (support)">
           <p className="text-xs text-gray-500 mb-3">The company manages its own logins. As provider support you can re-issue a password link if someone is locked out.</p>
+          {isProviderAdmin && (
+            <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="text-xs font-medium text-gray-600 mb-2">
+                {users.some((u) => u.role === 'ORG_ADMIN') ? 'Add another company admin login' : 'This company has no admin login yet — create one'}
+              </div>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <input placeholder="Admin name" value={newAdmin.name} onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })} className={input} />
+                <input placeholder="Admin email" value={newAdmin.email} onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })} className={input} />
+              </div>
+              <button onClick={createAdmin} disabled={!newAdmin.name.trim() || !newAdmin.email.trim()} className="rounded-lg bg-teal-600 disabled:opacity-50 text-white px-3 py-1.5 text-sm">Create admin login</button>
+            </div>
+          )}
           <table className="w-full text-sm">
             <tbody>
               {users.map((u) => (
