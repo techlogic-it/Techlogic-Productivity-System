@@ -383,13 +383,6 @@ export default function PortalAdmin() {
               <div className="text-xs text-gray-500 mb-1">One-click installer — hand this to the user (downloads the agent, installs it, autostarts at login). No admin needed.</div>
               <button onClick={downloadInstaller} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 text-sm font-medium">Download installer (.bat)</button>
             </div>
-            <div>
-              <div className="text-xs text-gray-500 mb-1">Or run this command manually on the user's Windows PC</div>
-              <div className="flex gap-2">
-                <code className="flex-1 rounded-lg bg-gray-900 text-gray-100 px-3 py-2 text-xs font-mono break-all">{companyKey.installCommand}</code>
-                <button onClick={() => copy(companyKey.installCommand, 'cmd')} className="shrink-0 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 text-sm">{copied === 'cmd' ? 'Copied' : 'Copy'}</button>
-              </div>
-            </div>
             <div className="flex items-center gap-3 pt-1 border-t border-gray-100">
               <button onClick={regenerateKey} className="mt-3 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 px-3 py-1.5 text-sm">Regenerate key</button>
               <span className="mt-3 text-xs text-gray-400">Rotating immediately invalidates the old key; update any deployed installer.</span>
