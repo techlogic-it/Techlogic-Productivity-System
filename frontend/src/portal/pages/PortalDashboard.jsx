@@ -1,8 +1,74 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import portalApi from '../portalApi';
 import { usePortalAuth } from '../PortalAuthContext';
 import { fmtDur, fmtDateInput, pctColour } from '../portalUtils';
+
+// Bucket a date-only summary into a day/week/month key + short label, without
+// timezone drift (summaryDate is UTC midnight; we read the calendar parts directly).
+function bucketFor(summaryDate, period) {
+  const [y, m, d] = summaryDate.slice(0, 10).split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  if (period === 'month') {
+    return { key: `${y}-${String(m).padStart(2, '0')}`, label: dt.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }) };
+  }
+  if (period === 'week') {
+    const mon = new Date(dt);
+    mon.setDate(dt.getDate() - ((dt.getDay() + 6) % 7)); // back to Monday
+    return { key: fmtDateInput(mon), label: mon.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) };
+  }
+  return { key: fmtDateInput(dt), label: dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) };
+}
+
+// Stacked productive/neutral/non-productive bars over time.
+function TrendChart({ days, period }) {
+  const buckets = useMemo(() => {
+    const map = new Map();
+    for (const s of days || []) {
+      const { key, label } = bucketFor(s.summaryDate, period);
+      if (!map.has(key)) map.set(key, { key, label, activeSec: 0, productiveSec: 0, neutralSec: 0, nonProductiveSec: 0 });
+      const b = map.get(key);
+      b.activeSec += s.activeSec || 0;
+      b.productiveSec += s.productiveSec || 0;
+      b.neutralSec += s.neutralSec || 0;
+      b.nonProductiveSec += s.nonProductiveSec || 0;
+    }
+    return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
+  }, [days, period]);
+
+  if (buckets.length === 0) return <div className="p-6 text-gray-400 text-sm">No activity to chart.</div>;
+  const max = Math.max(...buckets.map((b) => b.activeSec), 1);
+
+  return (
+    <div className="p-4">
+      <div className="flex items-end gap-2 h-48" style={{ minWidth: buckets.length * 40 }}>
+        {buckets.map((b) => {
+          const pct = b.activeSec > 0 ? Math.round((b.productiveSec / b.activeSec) * 100) : 0;
+          const h = (b.activeSec / max) * 100;
+          const seg = (sec) => (b.activeSec > 0 ? `${(sec / b.activeSec) * 100}%` : '0%');
+          return (
+            <div key={b.key} className="flex-1 min-w-[28px] flex flex-col items-center gap-1 group">
+              <div className="text-[10px] text-gray-500">{pct}%</div>
+              <div className="w-full rounded-t overflow-hidden bg-gray-100 flex flex-col-reverse" style={{ height: `${h}%`, minHeight: 4 }}
+                title={`${b.label} · ${fmtDur(b.activeSec)} active · ${pct}% productive`}>
+                <div style={{ height: seg(b.productiveSec) }} className="bg-green-500" />
+                <div style={{ height: seg(b.neutralSec) }} className="bg-gray-300" />
+                <div style={{ height: seg(b.nonProductiveSec) }} className="bg-red-400" />
+              </div>
+              <div className="text-[10px] text-gray-400 whitespace-nowrap">{b.label}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-green-500 inline-block" /> Productive</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-gray-300 inline-block" /> Neutral</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-red-400 inline-block" /> Non-productive</span>
+        <span className="ml-auto">Bar height = active time · % = productivity</span>
+      </div>
+    </div>
+  );
+}
 
 function Kpi({ label, value, sub }) {
   return (
@@ -38,6 +104,7 @@ export default function PortalDashboard() {
   const [toDate, setToDate] = useState(fmtDateInput(new Date()));
   const [groupId, setGroupId] = useState('');
   const [groups, setGroups] = useState([]);
+  const [trendPeriod, setTrendPeriod] = useState('day');
   const [data, setData] = useState({ total: {}, employees: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -122,6 +189,19 @@ export default function PortalDashboard() {
         <Kpi label="Idle" value={fmtDur(t.idleSec)} />
         <Kpi label="Overtime" value={fmtDur(t.overtimeSec)} sub={t.overtimeSec ? `${fmtDur(t.overtimeProductiveSec)} prod · ${t.overtimePct ?? 0}%` : null} />
         <Kpi label="Productivity" value={`${t.productivityPct ?? 0}%`} sub="productive ÷ active" />
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+          <span className="font-semibold text-gray-700 text-sm">Productivity trend</span>
+          <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs">
+            {[['day', 'Daily'], ['week', 'Weekly'], ['month', 'Monthly']].map(([p, label]) => (
+              <button key={p} onClick={() => setTrendPeriod(p)}
+                className={`px-3 py-1 ${trendPeriod === p ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{label}</button>
+            ))}
+          </div>
+        </div>
+        {loading ? <div className="p-6 text-gray-400 text-sm">Loading…</div> : <TrendChart days={data.days} period={trendPeriod} />}
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
