@@ -1,4 +1,4 @@
-<!-- deploy: re-trigger Railway build for provider business dashboard (9ac7bee) -->
+<!-- deploy: re-trigger Railway build for provider business dashboard (retry after webhook re-arm) -->
 # Techlogic Productivity System
 
 Multi-tenant employee-productivity monitoring: a Windows agent captures foreground
