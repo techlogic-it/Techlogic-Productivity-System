@@ -164,6 +164,58 @@ export function splitOfficeOvertime(startTime, durationSec, cfg) {
   return { officeSec, overtimeSec: sec - officeSec };
 }
 
+// Aggregate one employee-day's events into active/idle/productive totals, DE-DUPED
+// across devices: if a person is tracked on two machines at once, overlapping
+// wall-clock time is counted ONCE, so a day can never exceed real elapsed time.
+// A sweep line attributes each instant to the highest-priority concurrent event
+// (active beats idle; among active, more-productive wins).
+export function aggregateEmployeeDay(rawEvents, cfg, merged) {
+  const acc = { activeSec: 0, idleSec: 0, productiveSec: 0, neutralSec: 0, nonProductiveSec: 0, overtimeSec: 0, overtimeProductiveSec: 0, byCategory: {}, appSec: new Map() };
+  const evs = rawEvents
+    .map((e) => {
+      const cls = e.isIdle ? null : resolveClassification(e.processName, e.windowTitle, merged.appMap, merged.rules);
+      const weight = cls?.weight || 'NEUTRAL';
+      return {
+        startMs: e.startMs, endMs: e.endMs, isIdle: e.isIdle, processName: e.processName,
+        weight, category: cls?.category || 'UNCATEGORISED',
+        displayName: cls?.displayName || merged.appMap.get((e.processName || '').toUpperCase())?.displayName || e.processName,
+        // priority: active beats idle; among active, productive < neutral < non-productive.
+        pr: e.isIdle ? 100 : (weight === 'PRODUCTIVE' ? 0 : weight === 'NEUTRAL' ? 1 : 2),
+      };
+    })
+    .filter((e) => e.endMs > e.startMs);
+  if (!evs.length) return acc;
+
+  const starts = evs.slice().sort((a, b) => a.startMs - b.startMs);
+  const bounds = [...new Set(evs.flatMap((e) => [e.startMs, e.endMs]))].sort((a, b) => a - b);
+  let si = 0;
+  const active = new Set();
+  for (let i = 0; i < bounds.length - 1; i++) {
+    const a = bounds[i], b = bounds[i + 1];
+    while (si < starts.length && starts[si].startMs <= a) { active.add(starts[si]); si++; }
+    for (const e of active) if (e.endMs <= a) active.delete(e);
+    if (active.size === 0) continue;
+    // Every still-active event spans [a,b] (b is the next boundary), so just pick the winner.
+    let win = null;
+    for (const e of active) if (!win || e.pr < win.pr || (e.pr === win.pr && e.startMs < win.startMs)) win = e;
+    const durSec = (b - a) / 1000;
+    const { officeSec, overtimeSec } = splitOfficeOvertime(new Date(a), durSec, cfg);
+    if (win.isIdle) { acc.idleSec += officeSec; continue; }
+    acc.overtimeSec += overtimeSec; acc.activeSec += officeSec;
+    if (win.weight === 'PRODUCTIVE') { acc.productiveSec += officeSec; acc.overtimeProductiveSec += overtimeSec; }
+    else if (win.weight === 'NON_PRODUCTIVE') acc.nonProductiveSec += officeSec;
+    else acc.neutralSec += officeSec;
+    acc.byCategory[win.category] = (acc.byCategory[win.category] || 0) + officeSec;
+    const prev = acc.appSec.get(win.processName) || { processName: win.processName, displayName: win.displayName, sec: 0 };
+    prev.sec += durSec;
+    acc.appSec.set(win.processName, prev);
+  }
+  // Counts are seconds; round the fractional sweep results for integer columns.
+  for (const k of ['activeSec', 'idleSec', 'productiveSec', 'neutralSec', 'nonProductiveSec', 'overtimeSec', 'overtimeProductiveSec']) acc[k] = Math.round(acc[k]);
+  for (const k of Object.keys(acc.byCategory)) acc.byCategory[k] = Math.round(acc.byCategory[k]);
+  return acc;
+}
+
 // How many trailing days to recompute each run. A rolling window keeps the job
 // cheap and idempotent while still absorbing late uploads from laptops that
 // were offline. Bump if devices are commonly offline longer than this.
@@ -246,44 +298,17 @@ export async function runMonitoringRollup() {
     return merged;
   };
 
+  // Collect each employee-day's raw events; the per-day aggregation (with
+  // cross-device de-dup) happens after, in aggregateEmployeeDay.
   // group key = `${employeeId}|${YYYY-MM-DD}`
   const groups = new Map();
   for (const e of events) {
     const day = dateOnly(e.startTime);
     const key = `${e.employeeId}|${day.toISOString()}`;
-    if (!groups.has(key)) {
-      groups.set(key, {
-        employeeId: e.employeeId,
-        summaryDate: day,
-        activeSec: 0, idleSec: 0, productiveSec: 0, neutralSec: 0, nonProductiveSec: 0,
-        overtimeSec: 0, overtimeProductiveSec: 0, byCategory: {}, appSec: new Map(),
-      });
-    }
-    const g = groups.get(key);
-    const sec = e.durationSec || 0;
-    const { officeSec, overtimeSec } = splitOfficeOvertime(e.startTime, sec, cfgForEmp(e.employeeId));
-
-    if (e.isIdle) {
-      g.idleSec += officeSec; // only idle during office hours counts as idle
-      continue;
-    }
-
-    // Active time outside office hours is overtime, not part of the productivity %.
-    g.overtimeSec += overtimeSec;
-    g.activeSec += officeSec;
-
-    const merged = mergedFor(metaByEmp.get(e.employeeId)?.organisationId);
-    const cls = resolveClassification(e.processName, e.windowTitle, merged.appMap, merged.rules);
-    if (cls.weight === 'PRODUCTIVE') { g.productiveSec += officeSec; g.overtimeProductiveSec += overtimeSec; }
-    else if (cls.weight === 'NON_PRODUCTIVE') g.nonProductiveSec += officeSec;
-    else g.neutralSec += officeSec;
-
-    g.byCategory[cls.category] = (g.byCategory[cls.category] || 0) + officeSec;
-
-    const appKey = e.processName;
-    const prev = g.appSec.get(appKey) || { processName: appKey, displayName: merged.appMap.get((e.processName || '').toUpperCase())?.displayName || e.processName, sec: 0 };
-    prev.sec += sec; // top-apps reflect total usage (office + overtime)
-    g.appSec.set(appKey, prev);
+    if (!groups.has(key)) groups.set(key, { employeeId: e.employeeId, summaryDate: day, raw: [] });
+    const startMs = new Date(e.startTime).getTime();
+    const sec = Math.max(1, e.durationSec || 0);
+    groups.get(key).raw.push({ processName: e.processName, windowTitle: e.windowTitle, isIdle: e.isIdle, startMs, endMs: startMs + sec * 1000 });
   }
 
   // Tenant + customer are denormalised onto each summary (resolved above via
@@ -291,15 +316,17 @@ export async function runMonitoringRollup() {
   let summariesUpserted = 0;
   for (const g of groups.values()) {
     const meta = metaByEmp.get(g.employeeId);
-    const topApps = [...g.appSec.values()].sort((a, b) => b.sec - a.sec).slice(0, 5);
+    const merged = mergedFor(meta?.organisationId);
+    const agg = aggregateEmployeeDay(g.raw, cfgForEmp(g.employeeId), merged);
+    const topApps = [...agg.appSec.values()].sort((a, b) => b.sec - a.sec).slice(0, 5);
     const fields = {
       customerId: meta?.customerId ?? null,
       organisationId: meta?.organisationId ?? null,
       groupId: meta?.groupId ?? null,
-      activeSec: g.activeSec, idleSec: g.idleSec,
-      productiveSec: g.productiveSec, neutralSec: g.neutralSec, nonProductiveSec: g.nonProductiveSec,
-      overtimeSec: g.overtimeSec, overtimeProductiveSec: g.overtimeProductiveSec,
-      byCategory: g.byCategory, topApps,
+      activeSec: agg.activeSec, idleSec: agg.idleSec,
+      productiveSec: agg.productiveSec, neutralSec: agg.neutralSec, nonProductiveSec: agg.nonProductiveSec,
+      overtimeSec: agg.overtimeSec, overtimeProductiveSec: agg.overtimeProductiveSec,
+      byCategory: agg.byCategory, topApps,
     };
     await prisma.activitySummary.upsert({
       where: { employeeId_summaryDate: { employeeId: g.employeeId, summaryDate: g.summaryDate } },
