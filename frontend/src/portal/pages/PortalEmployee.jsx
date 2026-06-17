@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import portalApi from '../portalApi';
-import { fmtDur, fmtDateInput, fmtTime, WEIGHT_COLOUR } from '../portalUtils';
+import { fmtDur, fmtDateInput, fmtTime } from '../portalUtils';
+import { RingStat, hrsShort, RING } from '../components/RingStat';
 
 // Browsers are one process for every tab, so a per-process total would just say
 // "Microsoft Edge". Label browser rows by their window-title's first segment
@@ -111,20 +112,15 @@ export default function PortalEmployee() {
 
       {error && <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
 
-      <div className="grid grid-cols-4 gap-3 mb-6">
-        {[
-          { l: 'Active', v: t.activeSec },
-          { l: 'Productive', v: t.productiveSec },
-          { l: 'Idle', v: t.idleSec },
-          { l: 'Overtime', v: t.overtimeSec, sub: t.overtimeSec ? `${fmtDur(t.overtimeProductiveSec)} productive · ${t.overtimePct ?? 0}%` : null },
-        ].map(({ l, v, sub }) => (
-          <div key={l} className="bg-white rounded-xl border border-gray-200 p-3">
-            <div className="text-xs uppercase text-gray-500">{l}</div>
-            <div className="text-lg font-bold text-gray-800">{fmtDur(v)}</div>
-            {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
-          </div>
-        ))}
-      </div>
+      {(() => { const tracked = (t.activeSec || 0) + (t.idleSec || 0); return (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <RingStat color={RING.active} pct={tracked ? t.activeSec / tracked : 0} value={hrsShort(t.activeSec)} label="Active" />
+          <RingStat color={RING.productive} pct={t.activeSec ? t.productiveSec / t.activeSec : 0} value={hrsShort(t.productiveSec)} label="Productive" />
+          <RingStat color={RING.idle} pct={tracked ? t.idleSec / tracked : 0} value={hrsShort(t.idleSec)} label="Idle" />
+          <RingStat color={RING.productivity} pct={(t.productivityPct ?? 0) / 100} value={`${t.productivityPct ?? 0}%`} label="Productivity"
+            sub={t.overtimeSec ? `+${fmtDur(t.overtimeSec)} overtime` : null} />
+        </div>
+      ); })()}
 
       {!loading && hasActivity && (
         <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">

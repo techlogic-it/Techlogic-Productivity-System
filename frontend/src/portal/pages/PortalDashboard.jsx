@@ -5,6 +5,7 @@ import { usePortalAuth } from '../PortalAuthContext';
 import { fmtDur, fmtDateInput, pctColour } from '../portalUtils';
 import { isProvider as isProviderRole } from '../PortalAuthContext';
 import PortalProviderDashboard from './PortalProviderDashboard';
+import { RingStat, hrsShort, RING } from '../components/RingStat';
 
 // Bucket a date-only summary into a day/week/month key + short label, without
 // timezone drift (summaryDate is UTC midnight; we read the calendar parts directly).
@@ -189,14 +190,19 @@ function CompanyDashboard({ providerOrgId, providerOrgName }) {
 
       {error && <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
-        <Kpi label="Active" value={fmtDur(t.activeSec)} sub="office hours" />
-        <Kpi label="Productive" value={fmtDur(t.productiveSec)} />
+      {(() => { const tracked = (t.activeSec || 0) + (t.idleSec || 0); return (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <RingStat color={RING.active} pct={tracked ? t.activeSec / tracked : 0} value={hrsShort(t.activeSec)} label="Active" sub="office hours" />
+          <RingStat color={RING.productive} pct={t.activeSec ? t.productiveSec / t.activeSec : 0} value={hrsShort(t.productiveSec)} label="Productive" />
+          <RingStat color={RING.idle} pct={tracked ? t.idleSec / tracked : 0} value={hrsShort(t.idleSec)} label="Idle" />
+          <RingStat color={RING.productivity} pct={(t.productivityPct ?? 0) / 100} value={`${t.productivityPct ?? 0}%`} label="Productivity" sub="productive ÷ active" />
+        </div>
+      ); })()}
+
+      <div className="grid grid-cols-3 gap-3 mb-6">
         <Kpi label="Neutral" value={fmtDur(t.neutralSec)} />
         <Kpi label="Non-productive" value={fmtDur(t.nonProductiveSec)} />
-        <Kpi label="Idle" value={fmtDur(t.idleSec)} />
         <Kpi label="Overtime" value={fmtDur(t.overtimeSec)} sub={t.overtimeSec ? `${fmtDur(t.overtimeProductiveSec)} prod · ${t.overtimePct ?? 0}%` : null} />
-        <Kpi label="Productivity" value={`${t.productivityPct ?? 0}%`} sub="productive ÷ active" />
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
