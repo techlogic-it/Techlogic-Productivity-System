@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import portalApi from '../portalApi';
 import { fmtDur, fmtDateInput, fmtTime, WEIGHT_COLOUR } from '../portalUtils';
 
@@ -11,7 +11,8 @@ const catLabel = (c) => (c || 'Uncategorised').replace(/_/g, ' ').toLowerCase().
 
 export default function PortalEmployee() {
   const { id } = useParams();
-  const [date, setDate] = useState(fmtDateInput(new Date()));
+  const [searchParams] = useSearchParams();
+  const [date, setDate] = useState(/^\d{4}-\d{2}-\d{2}$/.test(searchParams.get('date') || '') ? searchParams.get('date') : fmtDateInput(new Date()));
   const [events, setEvents] = useState([]);
   const [day, setDay] = useState({ total: {} });
   const [loading, setLoading] = useState(true);

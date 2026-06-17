@@ -171,8 +171,8 @@ router.get(
     const rows = [];
     for (const emp of employees) {
       const cfg = await cfgFor(emp.organisationId);
-      let worked = 0, late = 0, totalLate = 0, worst = 0;
-      const lateDays = [];
+      let worked = 0, late = 0, totalLate = 0, worst = 0, totalArrival = 0;
+      const dayList = []; // every worked day: when they started, and how late
       for (const day of days) {
         const dayEnd = new Date(day); dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
         const first = await prisma.activityEvent.findFirst({
@@ -184,11 +184,10 @@ router.get(
         const { dayNum, minutesOfDay } = localTimeInfo(first.startTime, cfg.timezone);
         if (!cfg.days.has(dayNum)) continue; // non-working day → ignore
         worked += 1;
+        totalArrival += minutesOfDay;
         const lateBy = minutesOfDay - cfg.startMin;
-        if (lateBy > 0) {
-          late += 1; totalLate += lateBy; worst = Math.max(worst, lateBy);
-          lateDays.push({ date: day.toISOString().slice(0, 10), arrival: fmtMins(minutesOfDay), lateBy });
-        }
+        if (lateBy > 0) { late += 1; totalLate += lateBy; worst = Math.max(worst, lateBy); }
+        dayList.push({ date: day.toISOString().slice(0, 10), start: fmtMins(minutesOfDay), lateBy: Math.max(0, lateBy) });
       }
       if (worked === 0) continue;
       rows.push({
@@ -197,9 +196,10 @@ router.get(
         officeStart: fmtMins(cfg.startMin),
         worked, late,
         onTimePct: Math.round(((worked - late) / worked) * 100),
+        avgStart: fmtMins(Math.round(totalArrival / worked)), // typical start time
         avgLateMin: late ? Math.round(totalLate / late) : 0,
         worstLateMin: worst,
-        lateDays,
+        days: dayList, // per-day start timestamps
       });
     }
     rows.sort((a, b) => b.late - a.late || b.avgLateMin - a.avgLateMin);

@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import portalApi from '../portalApi';
 import { usePortalAuth, isProvider as isProviderRole } from '../PortalAuthContext';
 import { fmtDateInput } from '../portalUtils';
+
+const fmtDay = (s) => new Date(`${s}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 // Date range for a preset.
 function rangeFor(preset) {
@@ -38,6 +40,7 @@ export default function PortalReports() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [expandedId, setExpandedId] = useState(null);
 
   useEffect(() => {
     if (isProvider) portalApi.get('/orgs/organisations').then((r) => setCompanies(r.data || [])).catch(() => {});
@@ -121,6 +124,7 @@ export default function PortalReports() {
                 <tr>
                   <th className="text-left font-medium px-3 py-2">Employee</th>
                   <th className="text-center font-medium px-3 py-2">Office start</th>
+                  <th className="text-center font-medium px-3 py-2">Avg start</th>
                   <th className="text-right font-medium px-3 py-2">Days worked</th>
                   <th className="text-right font-medium px-3 py-2">Late days</th>
                   <th className="text-right font-medium px-3 py-2">On-time</th>
@@ -129,11 +133,17 @@ export default function PortalReports() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.employeeId} onClick={() => navigate(`/portal/employees/${r.employeeId}`)}
+                {rows.map((r) => {
+                  const open = expandedId === r.employeeId;
+                  return (
+                  <Fragment key={r.employeeId}>
+                  <tr onClick={() => setExpandedId(open ? null : r.employeeId)}
                     className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer">
-                    <td className="px-3 py-2 font-medium text-gray-800">{r.displayName}</td>
+                    <td className="px-3 py-2 font-medium text-gray-800">
+                      <span className="inline-block w-3 text-gray-400">{open ? '▾' : '▸'}</span> {r.displayName}
+                    </td>
                     <td className="px-3 py-2 text-center text-gray-500">{r.officeStart}</td>
+                    <td className="px-3 py-2 text-center tabular-nums text-gray-700 font-medium">{r.avgStart}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-gray-600">{r.worked}</td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       <span className={r.late > 0 ? 'text-red-600 font-semibold' : 'text-gray-400'}>{r.late}</span>
@@ -144,7 +154,25 @@ export default function PortalReports() {
                     <td className="px-3 py-2 text-right tabular-nums text-gray-600">{r.late > 0 ? fmtLate(r.avgLateMin) : '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-gray-500">{r.late > 0 ? fmtLate(r.worstLateMin) : '—'}</td>
                   </tr>
-                ))}
+                  {open && (
+                    <tr className="bg-gray-50/60">
+                      <td colSpan={8} className="px-6 py-3">
+                        <div className="text-xs text-gray-500 mb-2">Each working day's start time — click to open that day</div>
+                        <div className="flex flex-wrap gap-2">
+                          {(r.days || []).map((d) => (
+                            <button key={d.date} onClick={() => navigate(`/portal/employees/${r.employeeId}?date=${d.date}`)}
+                              className={`rounded-lg border px-2.5 py-1 text-xs ${d.lateBy > 0 ? 'border-red-200 bg-red-50 text-red-700' : 'border-gray-200 bg-white text-gray-700'} hover:bg-gray-100`}>
+                              <span className="text-gray-400">{fmtDay(d.date)}</span> <span className="font-semibold">{d.start}</span>
+                              {d.lateBy > 0 && <span className="ml-1 text-red-500">+{fmtLate(d.lateBy)}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
