@@ -227,12 +227,13 @@ router.get(
         _count: { select: { events: true } },
         organisation: { select: { id: true, name: true } },
         employees: { select: { id: true, displayName: true, upn: true, isActive: true }, orderBy: { updatedAt: 'desc' } },
+        owner: { select: { id: true, displayName: true, upn: true } },
       },
     });
     const out = devices.map((d) => {
-      const { employees, ...rest } = d;
+      const { employees, owner, ...rest } = d;
       const users = employees.map((e) => ({ id: e.id, name: e.displayName || e.upn || 'Unnamed', isActive: e.isActive }));
-      return { ...rest, users, primaryEmployee: employees[0] || null };
+      return { ...rest, users, primaryEmployee: employees[0] || null, owner: owner ? { id: owner.id, name: owner.displayName || owner.upn || 'Unnamed' } : null };
     });
     res.json(out);
   }),
@@ -661,10 +662,20 @@ router.patch(
     });
     if (!target) return res.status(404).json({ error: 'Device not found in your scope' });
 
-    const { status, rotateToken, deviceName } = req.body || {};
+    const { status, rotateToken, deviceName, ownerEmployeeId } = req.body || {};
     const data = {};
     if (status) data.status = status;
     if (typeof deviceName === 'string' && deviceName.trim()) data.deviceName = deviceName.trim();
+    // Assign (or clear) the device's owner — must be an employee in the same company.
+    if (ownerEmployeeId !== undefined) {
+      if (ownerEmployeeId === null || ownerEmployeeId === '') {
+        data.ownerEmployeeId = null;
+      } else {
+        const emp = await prisma.monitoredEmployee.findFirst({ where: { id: ownerEmployeeId, organisationId: target.organisationId } });
+        if (!emp) return res.status(400).json({ error: 'Owner must be a person in this device’s company.' });
+        data.ownerEmployeeId = emp.id;
+      }
+    }
     let newToken;
     if (rotateToken) {
       newToken = generateAgentToken();

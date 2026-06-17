@@ -29,6 +29,7 @@ export default function PortalDevices() {
   const isReadOnly = user.role === 'PROVIDER_VIEWER';
 
   const [devices, setDevices] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [companyId, setCompanyId] = useState('');
   const [search, setSearch] = useState('');
@@ -48,7 +49,18 @@ export default function PortalDevices() {
 
   useEffect(() => {
     if (isProvider) portalApi.get('/orgs/organisations').then((r) => setCompanies(r.data || [])).catch(() => {});
+    portalApi.get('/monitoring/employees?activeOnly=true').then((r) => setEmployees(r.data || [])).catch(() => {});
   }, [isProvider]);
+
+  // Employees of a device's company, for the owner picker.
+  const ownerOptions = (orgId) => employees
+    .filter((e) => (e.organisationId || e.organisation?.id) === orgId)
+    .map((e) => ({ id: e.id, name: e.displayName || e.localAccountKey || 'Unnamed' }));
+
+  const assignOwner = async (d, employeeId) => {
+    try { await portalApi.patch(`/monitoring/devices/${d.id}`, { ownerEmployeeId: employeeId || null }); load(); }
+    catch (e) { alert(e.response?.data?.error || 'Could not assign owner.'); }
+  };
 
   const setStatus = async (d, status) => {
     if (status === 'DISABLED' && !window.confirm(`Retire "${d.deviceName}"? It drops out of the active list and stops counting toward licences. Its history is kept.`)) return;
@@ -105,6 +117,7 @@ export default function PortalDevices() {
                   <th className="text-left font-medium px-4 py-2">Device</th>
                   {isProvider && <th className="text-left font-medium px-4 py-2">Company</th>}
                   <th className="text-left font-medium px-4 py-2">User(s)</th>
+                  <th className="text-left font-medium px-4 py-2">Owner</th>
                   <th className="text-left font-medium px-4 py-2">Status</th>
                   <th className="text-left font-medium px-4 py-2">Last seen</th>
                   <th className="text-left font-medium px-4 py-2">Agent</th>
@@ -123,6 +136,17 @@ export default function PortalDevices() {
                             className={`rounded-full px-2 py-0.5 text-xs ${u.isActive ? 'bg-teal-50 text-teal-700 hover:bg-teal-100' : 'bg-gray-100 text-gray-400'}`}>{u.name}</button>
                         ))}
                       </div>
+                    </td>
+                    <td className="px-4 py-2">
+                      {isReadOnly
+                        ? <span className="text-gray-600">{d.owner?.name || <span className="text-gray-300">—</span>}</span>
+                        : (
+                          <select value={d.owner?.id || ''} onChange={(e) => assignOwner(d, e.target.value)}
+                            className="rounded-lg border border-gray-300 px-2 py-1 text-xs max-w-[160px]">
+                            <option value="">— Unassigned —</option>
+                            {ownerOptions(d.organisationId).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                          </select>
+                        )}
                     </td>
                     <td className="px-4 py-2"><span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_BADGE[d.status] || 'bg-gray-100'}`}>{(d.status || '').toLowerCase()}</span></td>
                     <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{fmtSeen(d.lastSeenAt)}</td>

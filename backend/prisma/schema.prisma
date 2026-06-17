@@ -191,6 +191,10 @@ model MonitoredDevice {
   agentTokenHash String?           @unique
   enrolledAt     DateTime          @default(now())
   lastSeenAt     DateTime?
+  // Admin-assigned owner of the device (the person it belongs to). Optional and
+  // independent of the auto-captured users; for asset tracking / labelling.
+  ownerEmployeeId String?
+  owner           MonitoredEmployee? @relation("DeviceOwner", fields: [ownerEmployeeId], references: [id], onDelete: SetNull)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
@@ -229,6 +233,7 @@ model MonitoredEmployee {
   events        ActivityEvent[]
   sessionEvents SessionEvent[]
   summaries     ActivitySummary[]
+  ownedDevices  MonitoredDevice[] @relation("DeviceOwner")
 
   @@unique([organisationId, localAccountKey])
 }
