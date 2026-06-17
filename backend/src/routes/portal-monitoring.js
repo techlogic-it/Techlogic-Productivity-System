@@ -218,18 +218,21 @@ router.get(
 router.get(
   '/devices',
   asyncHandler(async (req, res) => {
+    const orgPick = providerOrgScope(req);
+    const where = { ...deviceWhere(req.portalUser), ...(orgPick ? { organisationId: orgPick } : {}) };
     const devices = await prisma.monitoredDevice.findMany({
-      where: deviceWhere(req.portalUser),
+      where,
       orderBy: { lastSeenAt: 'desc' },
       include: {
         _count: { select: { events: true } },
-        employees: { orderBy: { updatedAt: 'desc' }, take: 1 },
+        organisation: { select: { id: true, name: true } },
+        employees: { select: { id: true, displayName: true, upn: true, isActive: true }, orderBy: { updatedAt: 'desc' } },
       },
     });
     const out = devices.map((d) => {
-      const primaryEmployee = d.employees?.[0] || null;
       const { employees, ...rest } = d;
-      return { ...rest, primaryEmployee };
+      const users = employees.map((e) => ({ id: e.id, name: e.displayName || e.upn || 'Unnamed', isActive: e.isActive }));
+      return { ...rest, users, primaryEmployee: employees[0] || null };
     });
     res.json(out);
   }),
@@ -658,9 +661,10 @@ router.patch(
     });
     if (!target) return res.status(404).json({ error: 'Device not found in your scope' });
 
-    const { status, rotateToken } = req.body || {};
+    const { status, rotateToken, deviceName } = req.body || {};
     const data = {};
     if (status) data.status = status;
+    if (typeof deviceName === 'string' && deviceName.trim()) data.deviceName = deviceName.trim();
     let newToken;
     if (rotateToken) {
       newToken = generateAgentToken();

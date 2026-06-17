@@ -53,6 +53,7 @@ export default function PortalLayout({ children }) {
           <NavItem to="/portal" end>Dashboard</NavItem>
           {isAtLeast(user?.role, 'GROUP_ADMIN') && <NavItem to="/portal/employees">People</NavItem>}
           {isAtLeast(user?.role, 'GROUP_ADMIN') && <NavItem to="/portal/reports">Reports</NavItem>}
+          {isAtLeast(user?.role, 'MANAGER') && <NavItem to="/portal/devices">Devices</NavItem>}
           {isAtLeast(user?.role, 'ORG_ADMIN') && <NavItem to="/portal/admin">{user?.role === 'PROVIDER_ADMIN' || user?.role === 'PROVIDER_SUPPORT' || user?.role === 'PROVIDER_VIEWER' ? 'Companies' : 'Admin'}</NavItem>}
           {isAtLeast(user?.role, 'ORG_ADMIN') && <NavItem to="/portal/settings">Settings</NavItem>}
           {user?.role === 'PROVIDER_ADMIN' && <NavItem to="/portal/provider-users">Provider users</NavItem>}

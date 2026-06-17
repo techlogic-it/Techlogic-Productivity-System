@@ -10,6 +10,7 @@ import PortalAdmin from './pages/PortalAdmin';
 import PortalSettings from './pages/PortalSettings';
 import PortalProviderUsers from './pages/PortalProviderUsers';
 import PortalReports from './pages/PortalReports';
+import PortalDevices from './pages/PortalDevices';
 
 function Loading() {
   return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading…</div>;
@@ -39,6 +40,10 @@ function Shell() {
       <Route
         path="/portal/reports"
         element={<RequireAuth minRole="GROUP_ADMIN"><PortalLayout><PortalReports /></PortalLayout></RequireAuth>}
+      />
+      <Route
+        path="/portal/devices"
+        element={<RequireAuth minRole="MANAGER"><PortalLayout><PortalDevices /></PortalLayout></RequireAuth>}
       />
       <Route
         path="/portal/employees/:id"
