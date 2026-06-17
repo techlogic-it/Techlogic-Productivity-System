@@ -57,6 +57,7 @@ model Organisation {
   setting        MonitoringSetting?
   appOverrides   OrgAppClassification[]
   titleRules     OrgTitleRule[]
+  orgCategories  OrgCategory[]
   providerAssignments ProviderAssignment[]
 }
 
@@ -254,11 +255,27 @@ model OrgAppClassification {
   processName    String // upper-case match key, e.g. "MSEDGE.EXE"
   displayName    String?
   category       AppCategory        @default(UNCATEGORISED)
+  // When the app is filed under a company's own custom category, its name lives
+  // here (category stays UNCATEGORISED). Effective category = customCategory || category.
+  customCategory String?
   weight         ProductivityWeight @default(NEUTRAL)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
   @@unique([organisationId, processName])
+}
+
+// A company's own app category (e.g. "Clinical System"). Adds to the built-in
+// AppCategory list for that company; weight drives its productivity contribution.
+model OrgCategory {
+  id             String             @id @default(uuid())
+  organisationId String
+  organisation   Organisation       @relation(fields: [organisationId], references: [id])
+  name           String
+  weight         ProductivityWeight @default(NEUTRAL)
+  createdAt      DateTime           @default(now())
+
+  @@unique([organisationId, name])
 }
 
 // Per-company window-title rule (e.g. "youtube" â†’ ENTERTAINMENT). Company rules

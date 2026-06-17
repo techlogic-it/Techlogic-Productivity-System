@@ -282,6 +282,7 @@ router.delete(
       prisma.enrollmentKey.deleteMany({ where: { organisationId: id } }),
       prisma.orgAppClassification.deleteMany({ where: { organisationId: id } }),
       prisma.orgTitleRule.deleteMany({ where: { organisationId: id } }),
+      prisma.orgCategory.deleteMany({ where: { organisationId: id } }),
       prisma.monitoringSetting.deleteMany({ where: { organisationId: id } }),
       prisma.providerAssignment.deleteMany({ where: { organisationId: id } }),
       prisma.portalUser.deleteMany({ where: { organisationId: id } }),

@@ -32,6 +32,8 @@ export default function PortalSettings() {
   const [newApp, setNewApp] = useState({ processName: '', displayName: '', category: 'UNCATEGORISED', weight: 'NEUTRAL' });
   const [rules, setRules] = useState({ orgRules: [], globalRules: [] });
   const [newRule, setNewRule] = useState({ keyword: '', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' });
+  const [orgCats, setOrgCats] = useState([]);
+  const [newCat, setNewCat] = useState({ name: '', weight: 'PRODUCTIVE' });
 
   const q = orgId ? `?organisationId=${orgId}` : '';
 
@@ -44,12 +46,13 @@ export default function PortalSettings() {
 
   const loadAll = useCallback(async () => {
     if (isProvider && !orgId) return;
-    const [st, ap, tr] = await Promise.all([
+    const [st, ap, tr, oc] = await Promise.all([
       portalApi.get(`/monitoring/settings${q}`),
       portalApi.get(`/monitoring/apps${q}`),
       portalApi.get(`/monitoring/title-rules${q}`),
+      portalApi.get(`/monitoring/org-categories${q}`),
     ]);
-    setS(st.data); setApps(ap.data || []); setRules(tr.data || { orgRules: [], globalRules: [] });
+    setS(st.data); setApps(ap.data || []); setRules(tr.data || { orgRules: [], globalRules: [] }); setOrgCats(oc.data || []);
   }, [orgId]); // eslint-disable-line
 
   useEffect(() => { loadAll(); }, [loadAll]);
@@ -108,6 +111,26 @@ export default function PortalSettings() {
     await classify(newApp.processName.trim(), newApp.displayName.trim(), newApp.category, newApp.weight);
     setNewApp({ processName: '', displayName: '', category: 'UNCATEGORISED', weight: 'NEUTRAL' });
   };
+
+  // ── Custom categories ──
+  const addCategory = async () => {
+    setError('');
+    if (!newCat.name.trim()) return;
+    try {
+      await portalApi.post(`/monitoring/org-categories${q}`, { organisationId: orgId || undefined, name: newCat.name.trim(), weight: newCat.weight });
+      setNewCat({ name: '', weight: 'PRODUCTIVE' }); loadAll();
+    } catch (e) { setError(e.response?.data?.error || 'Could not add category'); }
+  };
+  const removeCategory = async (cat) => {
+    if (!window.confirm(`Remove the "${cat.name}" category? Apps using it return to Uncategorised.`)) return;
+    await portalApi.delete(`/monitoring/org-categories/${cat.id}${q}`); loadAll();
+  };
+  // Category dropdown options: built-in + this company's custom ones.
+  const categoryOptions = () => [
+    ...CATEGORIES.map((c) => <option key={c} value={c}>{label(c)}</option>),
+    ...(orgCats.length ? [<option key="__sep" disabled>──────────</option>] : []),
+    ...orgCats.map((c) => <option key={c.id} value={c.name}>{c.name}</option>),
+  ];
 
   // ── Title rules ──
   const addRule = async () => {
@@ -188,6 +211,26 @@ export default function PortalSettings() {
           </Card>
 
           <Card title="App categories" subtitle="Mark which apps are productive, social, etc. Changes apply to this company only and recalculate at the next rollup.">
+            <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="text-xs font-medium text-gray-600 mb-2">Your company's custom categories</div>
+              {orgCats.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {orgCats.map((c) => (
+                    <span key={c.id} className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs">
+                      <span className="font-medium text-gray-700">{c.name}</span>
+                      <span className={`${WEIGHT_COLOUR[c.weight]}`}>· {label(c.weight)}</span>
+                      <button onClick={() => removeCategory(c)} className="ml-1 text-gray-400 hover:text-red-600" title="Remove category">✕</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2 items-center">
+                <input placeholder="New category (e.g. Clinical System)" value={newCat.name} onChange={(e) => setNewCat({ ...newCat, name: e.target.value })} className={`${input} flex-1`} />
+                <select value={newCat.weight} onChange={(e) => setNewCat({ ...newCat, weight: e.target.value })} className={input}>{WEIGHTS.map((w) => <option key={w} value={w}>{label(w)}</option>)}</select>
+                <button onClick={addCategory} disabled={!newCat.name.trim()} className="rounded-lg bg-teal-600 disabled:opacity-50 text-white px-3 py-2 text-sm">Add category</button>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">Custom categories appear in the App and Add-app dropdowns below. The weight sets how time in that category counts toward productivity.</p>
+            </div>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-gray-400 border-b border-gray-100">
@@ -203,7 +246,7 @@ export default function PortalSettings() {
                     <td className="py-1.5"><span className="font-medium text-gray-800">{a.displayName || a.processName}</span> <span className="text-xs text-gray-400">{a.processName}</span></td>
                     <td className="py-1.5">
                       <select value={a.category} onChange={(e) => classify(a.processName, a.displayName, e.target.value, a.weight)} className={input}>
-                        {CATEGORIES.map((c) => <option key={c} value={c}>{label(c)}</option>)}
+                        {categoryOptions()}
                       </select>
                     </td>
                     <td className="py-1.5">
@@ -223,7 +266,7 @@ export default function PortalSettings() {
             <div className="mt-4 grid grid-cols-4 gap-2 items-end border-t border-gray-100 pt-3">
               <input placeholder="PROCESS.EXE" value={newApp.processName} onChange={(e) => setNewApp({ ...newApp, processName: e.target.value })} className={input} />
               <input placeholder="Display name" value={newApp.displayName} onChange={(e) => setNewApp({ ...newApp, displayName: e.target.value })} className={input} />
-              <select value={newApp.category} onChange={(e) => setNewApp({ ...newApp, category: e.target.value })} className={input}>{CATEGORIES.map((c) => <option key={c} value={c}>{label(c)}</option>)}</select>
+              <select value={newApp.category} onChange={(e) => setNewApp({ ...newApp, category: e.target.value })} className={input}>{categoryOptions()}</select>
               <div className="flex gap-1">
                 <select value={newApp.weight} onChange={(e) => setNewApp({ ...newApp, weight: e.target.value })} className={`${input} flex-1`}>{WEIGHTS.map((w) => <option key={w} value={w}>{label(w)}</option>)}</select>
                 <button onClick={addApp} className="rounded-lg bg-teal-600 text-white px-3 text-sm">Add</button>

@@ -335,12 +335,13 @@ router.get('/apps', asyncHandler(async (req, res) => {
   const apps = await prisma.monitoredApp.findMany({ orderBy: { displayName: 'asc' } });
   const overrides = orgId ? await prisma.orgAppClassification.findMany({ where: { organisationId: orgId } }) : [];
   const ovByProc = new Map(overrides.map((o) => [o.processName.toUpperCase(), o]));
+  const effCat = (o) => o.customCategory || o.category; // custom category wins
   const out = apps.map((a) => {
     const ov = ovByProc.get(a.processName.toUpperCase());
     return {
       processName: a.processName,
       displayName: a.displayName,
-      category: ov?.category ?? a.category,
+      category: ov ? effCat(ov) : a.category,
       weight: ov?.weight ?? a.weight,
       isOverride: !!ov,
       globalCategory: a.category,
@@ -351,29 +352,83 @@ router.get('/apps', asyncHandler(async (req, res) => {
   const known = new Set(apps.map((a) => a.processName.toUpperCase()));
   for (const o of overrides) {
     if (!known.has(o.processName.toUpperCase())) {
-      out.push({ processName: o.processName, displayName: o.displayName || o.processName, category: o.category, weight: o.weight, isOverride: true, globalCategory: null, globalWeight: null });
+      out.push({ processName: o.processName, displayName: o.displayName || o.processName, category: effCat(o), weight: o.weight, isOverride: true, globalCategory: null, globalWeight: null });
     }
   }
   res.json(out.sort((a, b) => (a.displayName || a.processName).localeCompare(b.displayName || b.processName)));
 }));
 
-// Set (or clear) this company's classification for an app.
+// Set (or clear) this company's classification for an app. `category` may be a
+// built-in AppCategory OR one of the company's custom category names.
 router.put('/apps/classify', requirePortalRole('ORG_ADMIN'), asyncHandler(async (req, res) => {
   const orgId = targetOrgId(req);
   if (!orgId) return res.status(400).json({ error: 'organisationId is required' });
   const processName = String(req.body?.processName || '').trim().toUpperCase();
   if (!processName) return res.status(400).json({ error: 'processName is required' });
-  const category = req.body?.category;
-  const weight = req.body?.weight;
-  if (!APP_CATEGORIES.includes(category)) return res.status(400).json({ error: 'Invalid category' });
+  const category = String(req.body?.category || '');
+  let weight = req.body?.weight;
+
+  // Built-in category → store the enum; otherwise it must be one of this company's
+  // custom categories (category stays UNCATEGORISED, the name goes in customCategory).
+  const data = { displayName: String(req.body?.displayName || '').trim() || null };
+  if (APP_CATEGORIES.includes(category)) {
+    data.category = category;
+    data.customCategory = null;
+  } else {
+    const custom = await prisma.orgCategory.findUnique({ where: { organisationId_name: { organisationId: orgId, name: category } } });
+    if (!custom) return res.status(400).json({ error: 'Invalid category' });
+    data.category = 'UNCATEGORISED';
+    data.customCategory = custom.name;
+    if (!WEIGHTS.includes(weight)) weight = custom.weight; // default to the category's weight
+  }
   if (!WEIGHTS.includes(weight)) return res.status(400).json({ error: 'Invalid weight' });
-  const data = { category, weight, displayName: String(req.body?.displayName || '').trim() || null };
+  data.weight = weight;
+
   const row = await prisma.orgAppClassification.upsert({
     where: { organisationId_processName: { organisationId: orgId, processName } },
     update: data,
     create: { organisationId: orgId, processName, ...data },
   });
   res.json(row);
+}));
+
+// ── Custom per-company app categories ────────────────────────────────────────
+router.get('/org-categories', asyncHandler(async (req, res) => {
+  const orgId = targetOrgId(req);
+  if (!orgId) return res.json([]);
+  const cats = await prisma.orgCategory.findMany({ where: { organisationId: orgId }, orderBy: { name: 'asc' } });
+  res.json(cats);
+}));
+
+router.post('/org-categories', requirePortalRole('ORG_ADMIN'), asyncHandler(async (req, res) => {
+  const orgId = targetOrgId(req);
+  if (!orgId) return res.status(400).json({ error: 'organisationId is required' });
+  const name = String(req.body?.name || '').trim();
+  const weight = WEIGHTS.includes(req.body?.weight) ? req.body.weight : 'NEUTRAL';
+  if (!name) return res.status(400).json({ error: 'Category name is required' });
+  if (APP_CATEGORIES.includes(name.toUpperCase().replace(/[\s-]+/g, '_'))) {
+    return res.status(409).json({ error: 'That matches a built-in category — pick a different name' });
+  }
+  try {
+    const row = await prisma.orgCategory.create({ data: { organisationId: orgId, name, weight } });
+    res.status(201).json(row);
+  } catch (e) {
+    if (e.code === 'P2002') return res.status(409).json({ error: 'That category already exists' });
+    throw e;
+  }
+}));
+
+router.delete('/org-categories/:id', requirePortalRole('ORG_ADMIN'), asyncHandler(async (req, res) => {
+  const orgId = targetOrgId(req);
+  const cat = await prisma.orgCategory.findFirst({ where: { id: req.params.id, organisationId: orgId } });
+  if (!cat) return res.status(404).json({ error: 'Category not found' });
+  // Un-file any apps using it (back to Uncategorised; their weight is kept).
+  await prisma.orgAppClassification.updateMany({
+    where: { organisationId: orgId, customCategory: cat.name },
+    data: { customCategory: null, category: 'UNCATEGORISED' },
+  });
+  await prisma.orgCategory.delete({ where: { id: cat.id } });
+  res.json({ ok: true });
 }));
 
 // Revert an app to the global default (delete the company override).

@@ -62,9 +62,10 @@ export async function effectiveClassification(organisationId) {
   if (organisationId) {
     const ov = await prisma.orgAppClassification.findMany({
       where: { organisationId },
-      select: { processName: true, displayName: true, weight: true, category: true },
+      select: { processName: true, displayName: true, weight: true, category: true, customCategory: true },
     });
-    for (const a of ov) byProc.set(a.processName.toUpperCase(), a);
+    // Effective category folds in a company's custom category name (if set).
+    for (const a of ov) byProc.set(a.processName.toUpperCase(), { ...a, category: a.customCategory || a.category });
     const orules = await prisma.orgTitleRule.findMany({
       where: { organisationId },
       select: { keyword: true, weight: true, category: true },
@@ -210,12 +211,13 @@ export async function runMonitoringRollup() {
   // Per-company overrides, layered over the global catalogue/rules. Present for an
   // org ⇒ wins for that org; absent ⇒ the global default applies.
   const orgAppRows = await prisma.orgAppClassification.findMany({
-    select: { organisationId: true, processName: true, displayName: true, weight: true, category: true },
+    select: { organisationId: true, processName: true, displayName: true, weight: true, category: true, customCategory: true },
   });
   const orgAppByOrg = new Map();
   for (const r of orgAppRows) {
     if (!orgAppByOrg.has(r.organisationId)) orgAppByOrg.set(r.organisationId, new Map());
-    orgAppByOrg.get(r.organisationId).set(r.processName.toUpperCase(), r);
+    // Effective category folds in the company's custom category name (if set).
+    orgAppByOrg.get(r.organisationId).set(r.processName.toUpperCase(), { ...r, category: r.customCategory || r.category });
   }
   const orgTitleRows = await prisma.orgTitleRule.findMany({
     select: { organisationId: true, keyword: true, weight: true, category: true },
