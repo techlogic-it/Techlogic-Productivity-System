@@ -233,6 +233,13 @@ export default function PortalAdmin() {
       setEditUser(null); loadOrg();
     } catch (e) { alert(e.response?.data?.error || 'Could not save'); }
   };
+  const deleteUser = async (u) => {
+    if (!window.confirm(`Delete the login for ${u.name} (${u.email})?\n\nThey lose access to the portal. This does NOT delete their monitored activity.`)) return;
+    try {
+      await portalApi.delete(`/orgs/organisations/${orgId}/users/${u.id}`);
+      loadOrg();
+    } catch (e) { alert(e.response?.data?.error || 'Could not delete the user.'); }
+  };
   const regenerateKey = async () => {
     if (!window.confirm('Regenerate the company key?\n\nThe current key stops working IMMEDIATELY. Every installer (.bat) already handed out for this company will stop being able to enrol new machines until you re-issue it. Already-enrolled agents keep working.\n\nAre you sure?')) return;
     const { data } = await portalApi.post(`/orgs/organisations/${orgId}/enrollment-key/regenerate`);
@@ -483,6 +490,11 @@ export default function PortalAdmin() {
                     <button onClick={() => resendInvite(u)} className="text-xs text-teal-700 hover:underline mr-3">Copy invite link</button>
                   )}
                   <button onClick={() => startEditUser(u)} className="text-xs text-gray-600 hover:underline">Edit</button>
+                  {u.id !== user.id ? (
+                    <button onClick={() => deleteUser(u)} className="text-xs text-red-600 hover:underline ml-3">Delete</button>
+                  ) : (
+                    <span className="text-xs text-gray-300 ml-3" title="You can't delete the account you're signed in with">You</span>
+                  )}
                 </td>
               </tr>
             ))}

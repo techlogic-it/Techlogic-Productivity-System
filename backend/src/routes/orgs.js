@@ -721,6 +721,31 @@ router.patch(
   }),
 );
 
+// Delete a company login. The admin can't delete the account they're signed in
+// with. Monitored activity is untouched (this only removes a portal login).
+router.delete(
+  '/organisations/:id/users/:userId',
+  requirePortalRole('ORG_ADMIN'),
+  asyncHandler(async (req, res) => {
+    if (!isOrgSelfAdmin(req.portalUser, req.params.id)) {
+      return res.status(403).json({ error: 'Company logins are managed by the company admin.' });
+    }
+    if (req.params.userId === req.portalUser.id) {
+      return res.status(400).json({ error: "You can't delete the account you're signed in with." });
+    }
+    const user = await prisma.portalUser.findFirst({
+      where: { id: req.params.userId, organisationId: req.params.id },
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Keep the access-log audit trail — unlink rather than delete those rows.
+    await prisma.monitoringAccessLog.updateMany({ where: { portalUserId: user.id }, data: { portalUserId: null } });
+    await prisma.providerAssignment.deleteMany({ where: { portalUserId: user.id } }); // company users have none, but safe
+    await prisma.portalUser.delete({ where: { id: user.id } });
+    res.json({ ok: true, deleted: { id: user.id, email: user.email } });
+  }),
+);
+
 // (Re)issue an invite for an existing user — fresh single-use token so the admin
 // can copy the link again (e.g. the first link was missed, or it expired).
 router.post(
