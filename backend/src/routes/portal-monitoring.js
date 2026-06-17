@@ -572,13 +572,17 @@ router.post(
     if (!org) return res.status(404).json({ error: 'Company not found' });
     const setting = await getMonitoringSettings(orgId);
     const type = req.query.type === 'weekly' ? 'weekly' : 'daily';
-    const result = await sendDigest({ org, setting, type, to: req.portalUser.email });
+    // ?to=me sends only to the caller (quiet preview); default sends to the REAL
+    // recipient list (admins/managers + extras) so delivery to everyone is tested.
+    const toCaller = req.query.to === 'me';
+    const result = await sendDigest({ org, setting, type, to: toCaller ? req.portalUser.email : undefined });
     res.json({
       ok: true,
       type,
-      sentTo: req.portalUser.email,
+      recipients: result.recipients || [],
       emailConfigured,
-      mode: result.mode, // 'resend' when the key is set, 'logmode' until then, 'error' on failure
+      mode: result.mode, // 'resend' sent, 'logmode' until the key is set, 'error' on failure, 'skipped' = no recipients
+      error: result.error || null,
     });
   }),
 );

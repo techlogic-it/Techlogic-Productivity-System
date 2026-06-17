@@ -89,11 +89,13 @@ export default function PortalSettings() {
     setTestMsg('Sending…');
     try {
       const { data } = await portalApi.post(`/monitoring/digests/test?type=${type}${orgId ? `&organisationId=${orgId}` : ''}`);
-      setTestMsg(data.mode === 'resend'
-        ? `Sent a ${type} test to ${data.sentTo}.`
-        : data.mode === 'error'
-        ? 'Email provider returned an error — check the server logs.'
-        : `Rendered a ${type} test to the server log (no email provider connected yet — set RESEND_API_KEY to send for real).`);
+      const who = (data.recipients || []).join(', ') || 'no one';
+      setTestMsg(
+        data.mode === 'resend' ? `Sent a ${type} digest to: ${who}.`
+        : data.mode === 'skipped' ? 'No recipients — add an admin/manager or an extra recipient, then Save.'
+        : data.mode === 'error' ? `Email provider error: ${data.error || 'check the server logs'}.`
+        : `Email isn't connected yet (rendered to the server log). Would have gone to: ${who}.`,
+      );
     } catch (e) { setTestMsg(e.response?.data?.error || 'Could not send test'); }
   };
 
