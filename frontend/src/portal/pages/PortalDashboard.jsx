@@ -97,11 +97,13 @@ function rangeFor(preset) {
   return [null, null];
 }
 
-// A company's own productivity dashboard (org admins / managers / viewers).
-function CompanyDashboard() {
+// A company's own productivity dashboard. Also used by a provider to view ONE
+// company (providerOrgId/providerOrgName props pin the report to that company).
+function CompanyDashboard({ providerOrgId, providerOrgName }) {
   const navigate = useNavigate();
   const { user, org } = usePortalAuth();
-  const canFilterDept = org?.id && (user.role === 'ORG_ADMIN' || user.role === 'MANAGER');
+  const reportOrgId = providerOrgId || org?.id;
+  const canFilterDept = !!reportOrgId && (!!providerOrgId || user.role === 'ORG_ADMIN' || user.role === 'MANAGER');
 
   const [preset, setPreset] = useState('month');
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -115,9 +117,9 @@ function CompanyDashboard() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!canFilterDept) return;
-    portalApi.get(`/orgs/organisations/${org.id}/groups`).then((r) => setGroups(r.data || [])).catch(() => {});
-  }, [canFilterDept, org]);
+    if (!canFilterDept || !reportOrgId) return;
+    portalApi.get(`/orgs/organisations/${reportOrgId}/groups`).then((r) => setGroups(r.data || [])).catch(() => {});
+  }, [canFilterDept, reportOrgId]);
 
   const applyPreset = (p) => {
     setPreset(p);
@@ -129,6 +131,7 @@ function CompanyDashboard() {
   const query = () => {
     const q = new URLSearchParams({ fromDate, toDate });
     if (groupId) q.set('groupId', groupId);
+    if (providerOrgId) q.set('organisationId', providerOrgId);
     return q.toString();
   };
 
@@ -158,7 +161,7 @@ function CompanyDashboard() {
   return (
     <div className="max-w-6xl">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h1 className="text-xl font-bold text-gray-800">Dashboard</h1>
+        <h1 className="text-xl font-bold text-gray-800">{providerOrgName ? `${providerOrgName} — productivity` : 'Dashboard'}</h1>
         <div className="flex items-center gap-2 text-sm flex-wrap">
           <div className="flex rounded-lg border border-gray-300 overflow-hidden">
             {PRESETS.map(([p, label]) => (
@@ -255,9 +258,31 @@ function CompanyDashboard() {
   );
 }
 
-// Providers get a business overview instead of a company's productivity report.
+// Providers: a company selector that switches between the all-companies business
+// overview and one company's productivity report.
+function ProviderDashboardSwitcher() {
+  const [orgs, setOrgs] = useState([]);
+  const [orgId, setOrgId] = useState('');
+  useEffect(() => { portalApi.get('/orgs/organisations').then((r) => setOrgs(r.data || [])).catch(() => {}); }, []);
+  const selected = orgs.find((o) => o.id === orgId);
+  return (
+    <div className="max-w-6xl">
+      <div className="flex items-center justify-end mb-3">
+        <select value={orgId} onChange={(e) => setOrgId(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">
+          <option value="">All companies — overview</option>
+          {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+        </select>
+      </div>
+      {orgId
+        ? <CompanyDashboard key={orgId} providerOrgId={orgId} providerOrgName={selected?.name} />
+        : <PortalProviderDashboard />}
+    </div>
+  );
+}
+
+// Providers get the company switcher; everyone else their own company's report.
 export default function PortalDashboard() {
   const { user } = usePortalAuth();
-  if (isProviderRole(user.role)) return <PortalProviderDashboard />;
+  if (isProviderRole(user.role)) return <ProviderDashboardSwitcher />;
   return <CompanyDashboard />;
 }

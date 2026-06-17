@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import portalApi from '../portalApi';
-import { usePortalAuth } from '../PortalAuthContext';
+import { usePortalAuth, isProvider as isProviderRole } from '../PortalAuthContext';
 import { fmtDateInput } from '../portalUtils';
 
 // Date range for a preset.
@@ -22,7 +22,12 @@ const fmtLate = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`)
 export default function PortalReports() {
   const navigate = useNavigate();
   const { user, org } = usePortalAuth();
-  const canFilterDept = org?.id && (user.role === 'ORG_ADMIN' || user.role === 'MANAGER');
+  const isProvider = isProviderRole(user.role);
+
+  const [companyId, setCompanyId] = useState('');
+  const [companies, setCompanies] = useState([]);
+  const reportOrgId = isProvider ? companyId : org?.id;
+  const canFilterDept = !!reportOrgId && (isProvider || user.role === 'ORG_ADMIN' || user.role === 'MANAGER');
 
   const [preset, setPreset] = useState('week');
   const [[f0, t0]] = useState(rangeFor('week'));
@@ -35,9 +40,16 @@ export default function PortalReports() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!canFilterDept) return;
-    portalApi.get(`/orgs/organisations/${org.id}/groups`).then((r) => setGroups(r.data || [])).catch(() => {});
-  }, [canFilterDept, org]);
+    if (isProvider) portalApi.get('/orgs/organisations').then((r) => setCompanies(r.data || [])).catch(() => {});
+  }, [isProvider]);
+
+  // Reset the department filter when the selected company changes.
+  useEffect(() => { setGroupId(''); }, [companyId]);
+
+  useEffect(() => {
+    if (!canFilterDept || !reportOrgId) { setGroups([]); return; }
+    portalApi.get(`/orgs/organisations/${reportOrgId}/groups`).then((r) => setGroups(r.data || [])).catch(() => {});
+  }, [canFilterDept, reportOrgId]);
 
   const applyPreset = (p) => {
     setPreset(p);
@@ -50,11 +62,12 @@ export default function PortalReports() {
     setLoading(true); setError('');
     const q = new URLSearchParams({ fromDate, toDate });
     if (groupId) q.set('groupId', groupId);
+    if (isProvider && companyId) q.set('organisationId', companyId);
     portalApi.get(`/monitoring/late-report?${q.toString()}`)
       .then((r) => setRows(r.data?.rows || []))
       .catch((e) => setError(e.response?.data?.error || 'Failed to load'))
       .finally(() => setLoading(false));
-  }, [fromDate, toDate, groupId]);
+  }, [fromDate, toDate, groupId, companyId]);
 
   const PRESETS = [['week', 'This week'], ['month', 'This month'], ['7d', 'Last 7 days'], ['custom', 'Custom']];
 
@@ -69,6 +82,12 @@ export default function PortalReports() {
                 className={`px-3 py-1.5 ${preset === p ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{label}</button>
             ))}
           </div>
+          {isProvider && (
+            <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5">
+              <option value="">All companies</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          )}
           {canFilterDept && groups.length > 0 && (
             <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5">
               <option value="">All departments</option>

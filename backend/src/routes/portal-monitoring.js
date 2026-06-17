@@ -50,14 +50,31 @@ async function logAccess(portalUser, action, extra = {}) {
 
 // ── Reads ────────────────────────────────────────────────────────────────────
 
+// Lets a provider narrow a report to ONE of their companies via ?organisationId
+// (validated against what they may reach). Returns the org id to pin to, or null
+// (no filter — provider sees all their companies; non-providers are already
+// pinned by scopeFor and can't widen).
+function providerOrgScope(req) {
+  const u = req.portalUser;
+  const want = req.query.organisationId;
+  if (!want) return null;
+  if (u.role === 'PROVIDER_ADMIN') return want;
+  if (u.role === 'PROVIDER_SUPPORT' || u.role === 'PROVIDER_VIEWER') {
+    return (u.assignedOrgIds || []).includes(want) ? want : null;
+  }
+  return null;
+}
+
 router.get(
   '/summary',
   asyncHandler(async (req, res) => {
     const { fromDate, toDate, employeeId } = req.query;
     const where = { ...scopeFor(req.portalUser) };
     if (employeeId) where.employeeId = employeeId;
+    const orgPick = providerOrgScope(req);
+    if (orgPick) where.organisationId = orgPick; // provider drilling into one company
     // Department filter — only for company-wide roles (never widens a scoped view).
-    if (req.query.groupId && ['PROVIDER_ADMIN', 'ORG_ADMIN', 'MANAGER'].includes(req.portalUser.role)) {
+    if (req.query.groupId && ['PROVIDER_ADMIN', 'PROVIDER_SUPPORT', 'ORG_ADMIN', 'MANAGER'].includes(req.portalUser.role)) {
       where.groupId = req.query.groupId;
     }
     if (fromDate || toDate) {
@@ -124,6 +141,8 @@ router.get(
   '/late-report',
   asyncHandler(async (req, res) => {
     const empWhere = { ...scopeFor(req.portalUser), isActive: true };
+    const orgPick = providerOrgScope(req);
+    if (orgPick) empWhere.organisationId = orgPick;
     if (req.query.groupId && ['PROVIDER_ADMIN', 'PROVIDER_SUPPORT', 'ORG_ADMIN', 'MANAGER'].includes(req.portalUser.role)) {
       empWhere.groupId = req.query.groupId;
     }
@@ -270,7 +289,9 @@ router.get(
   asyncHandler(async (req, res) => {
     const { fromDate, toDate } = req.query;
     const where = { ...scopeFor(req.portalUser) };
-    if (req.query.groupId && ['PROVIDER_ADMIN', 'ORG_ADMIN', 'MANAGER'].includes(req.portalUser.role)) {
+    const orgPick = providerOrgScope(req);
+    if (orgPick) where.organisationId = orgPick;
+    if (req.query.groupId && ['PROVIDER_ADMIN', 'PROVIDER_SUPPORT', 'ORG_ADMIN', 'MANAGER'].includes(req.portalUser.role)) {
       where.groupId = req.query.groupId;
     }
     if (fromDate || toDate) {
