@@ -9,6 +9,10 @@ import { fmtDur, fmtDateInput, fmtTime, WEIGHT_COLOUR } from '../portalUtils';
 const BROWSERS = new Set(['MSEDGE.EXE', 'CHROME.EXE', 'FIREFOX.EXE', 'BRAVE.EXE', 'OPERA.EXE', 'IEXPLORE.EXE', 'ARC.EXE', 'VIVALDI.EXE']);
 const catLabel = (c) => (c || 'Uncategorised').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase());
 
+// Solid colours per productivity weight — for the bar breakdown + timeline dots.
+const WEIGHT_BAR = { PRODUCTIVE: 'bg-green-500', NEUTRAL: 'bg-gray-300', NON_PRODUCTIVE: 'bg-red-400' };
+const WEIGHT_DOT = { PRODUCTIVE: 'bg-green-500', NEUTRAL: 'bg-gray-400', NON_PRODUCTIVE: 'bg-red-400' };
+
 export default function PortalEmployee() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -158,32 +162,29 @@ export default function PortalEmployee() {
         ) : appBreakdown.length === 0 ? (
           <div className="p-6 text-gray-400 text-sm">{windowed ? 'No app activity in the selected time window.' : 'No app activity recorded for this day.'}</div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
-              <tr>
-                <th className="text-left font-medium px-4 py-2">App / site</th>
-                <th className="text-left font-medium px-4 py-2">Category</th>
-                <th className="text-right font-medium px-4 py-2">Time</th>
-                <th className="text-right font-medium px-4 py-2">Share</th>
-                <th className="text-left font-medium px-4 py-2">Class</th>
-              </tr>
-            </thead>
-            <tbody>
-              {appBreakdown.slice(0, 30).map((a) => (
-                <tr key={a.label} className="border-t border-gray-100">
-                  <td className="px-4 py-2 font-medium text-gray-800 truncate max-w-[260px]">{a.label}</td>
-                  <td className="px-4 py-2 text-gray-500">{catLabel(a.category)}</td>
-                  <td className="px-4 py-2 text-right text-gray-700 whitespace-nowrap">{fmtDur(a.sec)}</td>
-                  <td className="px-4 py-2 text-right text-gray-400">{a.pct}%</td>
-                  <td className="px-4 py-2">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${WEIGHT_COLOUR[a.weight] || 'bg-gray-100'}`}>
-                      {(a.weight || 'NEUTRAL').toLowerCase().replace('_', '-')}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="p-4 space-y-2.5">
+            {appBreakdown.slice(0, 30).map((a) => (
+              <div key={a.label}>
+                <div className="flex items-center justify-between text-sm mb-1 gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${WEIGHT_DOT[a.weight] || 'bg-gray-300'}`} />
+                    <span className="font-medium text-gray-800 truncate">{a.label}</span>
+                    <span className="text-xs text-gray-400 shrink-0 hidden sm:inline">{catLabel(a.category)}</span>
+                  </div>
+                  <span className="text-xs text-gray-500 whitespace-nowrap tabular-nums">{fmtDur(a.sec)} · {a.pct}%</span>
+                </div>
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${WEIGHT_BAR[a.weight] || 'bg-gray-300'}`} style={{ width: `${Math.max(2, a.pct)}%` }} />
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center gap-4 pt-2 text-xs text-gray-500 border-t border-gray-100 mt-1">
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" /> Productive</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-gray-300 inline-block" /> Neutral</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-400 inline-block" /> Non-productive</span>
+              <span className="ml-auto">Bar = share of active time</span>
+            </div>
+          </div>
         )}
       </div>
 
@@ -197,32 +198,25 @@ export default function PortalEmployee() {
         ) : filteredEvents.length === 0 ? (
           <div className="p-6 text-gray-400 text-sm">{windowed && events.length > 0 ? 'No activity in the selected time window.' : 'No activity recorded for this day.'}</div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
-              <tr>
-                <th className="text-left font-medium px-4 py-2">Time</th>
-                <th className="text-left font-medium px-4 py-2">App</th>
-                <th className="text-left font-medium px-4 py-2">Window</th>
-                <th className="text-right font-medium px-4 py-2">Duration</th>
-                <th className="text-left font-medium px-4 py-2">Class</th>
-              </tr>
-            </thead>
-            <tbody>
+          <div className="p-4 pl-5">
+            <ol className="relative border-l-2 border-gray-100 ml-2">
               {filteredEvents.map((e) => (
-                <tr key={e.id} className="border-t border-gray-100">
-                  <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{fmtTime(e.startTime)}</td>
-                  <td className="px-4 py-2 font-medium text-gray-800">{e.resolvedDisplayName || e.processName}</td>
-                  <td className="px-4 py-2 text-gray-500 truncate max-w-[200px]">{e.windowTitle || '—'}</td>
-                  <td className="px-4 py-2 text-right text-gray-600">{e.isIdle ? 'idle' : fmtDur(e.durationSec)}</td>
-                  <td className="px-4 py-2">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${WEIGHT_COLOUR[e.resolvedWeight] || 'bg-gray-100'}`}>
-                      {(e.resolvedWeight || 'NEUTRAL').toLowerCase()}
-                    </span>
-                  </td>
-                </tr>
+                <li key={e.id} className="relative pl-5 py-1.5">
+                  <span className={`absolute -left-[7px] top-2.5 w-3 h-3 rounded-full ring-2 ring-white ${e.isIdle ? 'bg-gray-200' : (WEIGHT_DOT[e.resolvedWeight] || 'bg-gray-400')}`} />
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-xs text-gray-400 tabular-nums shrink-0">{fmtTime(e.startTime)}</span>
+                        <span className={`text-sm font-medium truncate ${e.isIdle ? 'text-gray-400' : 'text-gray-800'}`}>{e.isIdle ? 'Idle' : (e.resolvedDisplayName || e.processName)}</span>
+                      </div>
+                      {!e.isIdle && e.windowTitle && <div className="text-xs text-gray-400 truncate">{e.windowTitle}</div>}
+                    </div>
+                    <span className="text-xs text-gray-500 whitespace-nowrap tabular-nums shrink-0">{e.isIdle ? 'idle' : fmtDur(e.durationSec)}</span>
+                  </div>
+                </li>
               ))}
-            </tbody>
-          </table>
+            </ol>
+          </div>
         )}
       </div>
     </div>
