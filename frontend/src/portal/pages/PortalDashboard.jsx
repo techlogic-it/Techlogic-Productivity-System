@@ -29,9 +29,10 @@ function TrendChart({ days, period }) {
     const map = new Map();
     for (const s of days || []) {
       const { key, label } = bucketFor(s.summaryDate, period);
-      if (!map.has(key)) map.set(key, { key, label, activeSec: 0, productiveSec: 0, neutralSec: 0, nonProductiveSec: 0 });
+      if (!map.has(key)) map.set(key, { key, label, activeSec: 0, idleSec: 0, productiveSec: 0, neutralSec: 0, nonProductiveSec: 0 });
       const b = map.get(key);
       b.activeSec += s.activeSec || 0;
+      b.idleSec += s.idleSec || 0;
       b.productiveSec += s.productiveSec || 0;
       b.neutralSec += s.neutralSec || 0;
       b.nonProductiveSec += s.nonProductiveSec || 0;
@@ -46,7 +47,8 @@ function TrendChart({ days, period }) {
     <div className="p-4">
       <div className="flex items-end gap-2 h-48" style={{ minWidth: buckets.length * 40 }}>
         {buckets.map((b) => {
-          const pct = b.activeSec > 0 ? Math.round((b.productiveSec / b.activeSec) * 100) : 0;
+          const present = b.activeSec + b.idleSec;
+          const pct = present > 0 ? Math.round((b.productiveSec / present) * 100) : 0;
           const h = (b.activeSec / max) * 100;
           const seg = (sec) => (b.activeSec > 0 ? `${(sec / b.activeSec) * 100}%` : '0%');
           return (
@@ -192,10 +194,10 @@ function CompanyDashboard({ providerOrgId, providerOrgName }) {
 
       {(() => { const tracked = (t.activeSec || 0) + (t.idleSec || 0); return (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <RingStat color={RING.active} pct={tracked ? t.activeSec / tracked : 0} value={hrsShort(t.activeSec)} label="Active" sub="office hours" />
-          <RingStat color={RING.productive} pct={t.activeSec ? t.productiveSec / t.activeSec : 0} value={hrsShort(t.productiveSec)} label="Productive" />
-          <RingStat color={RING.idle} pct={tracked ? t.idleSec / tracked : 0} value={hrsShort(t.idleSec)} label="Idle" />
-          <RingStat color={RING.productivity} pct={(t.productivityPct ?? 0) / 100} value={`${t.productivityPct ?? 0}%`} label="Productivity" sub="productive ÷ active" />
+          <RingStat color={RING.active} pct={tracked ? t.activeSec / tracked : 0} value={hrsShort(t.activeSec)} label="Active" sub="of tracked time" />
+          <RingStat color={RING.productive} pct={tracked ? t.productiveSec / tracked : 0} value={hrsShort(t.productiveSec)} label="Productive" sub="of tracked time" />
+          <RingStat color={RING.idle} pct={tracked ? t.idleSec / tracked : 0} value={hrsShort(t.idleSec)} label="Idle" sub="of tracked time" />
+          <RingStat color={RING.productivity} pct={(t.productivityPct ?? 0) / 100} value={`${t.productivityPct ?? 0}%`} label="Productivity" sub="productive ÷ tracked" />
         </div>
       ); })()}
 

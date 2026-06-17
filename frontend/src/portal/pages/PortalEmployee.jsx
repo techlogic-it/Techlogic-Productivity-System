@@ -114,11 +114,11 @@ export default function PortalEmployee() {
 
       {(() => { const tracked = (t.activeSec || 0) + (t.idleSec || 0); return (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <RingStat color={RING.active} pct={tracked ? t.activeSec / tracked : 0} value={hrsShort(t.activeSec)} label="Active" />
-          <RingStat color={RING.productive} pct={t.activeSec ? t.productiveSec / t.activeSec : 0} value={hrsShort(t.productiveSec)} label="Productive" />
-          <RingStat color={RING.idle} pct={tracked ? t.idleSec / tracked : 0} value={hrsShort(t.idleSec)} label="Idle" />
+          <RingStat color={RING.active} pct={tracked ? t.activeSec / tracked : 0} value={hrsShort(t.activeSec)} label="Active" sub="of tracked" />
+          <RingStat color={RING.productive} pct={tracked ? t.productiveSec / tracked : 0} value={hrsShort(t.productiveSec)} label="Productive" sub="of tracked" />
+          <RingStat color={RING.idle} pct={tracked ? t.idleSec / tracked : 0} value={hrsShort(t.idleSec)} label="Idle" sub="of tracked" />
           <RingStat color={RING.productivity} pct={(t.productivityPct ?? 0) / 100} value={`${t.productivityPct ?? 0}%`} label="Productivity"
-            sub={t.overtimeSec ? `+${fmtDur(t.overtimeSec)} overtime` : null} />
+            sub={t.overtimeSec ? `+${fmtDur(t.overtimeSec)} overtime` : 'productive ÷ tracked'} />
         </div>
       ); })()}
 

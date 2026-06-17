@@ -48,15 +48,16 @@ async function buildDigest(orgId, fromStr, toStr) {
     total.productiveSec += s.productiveSec; total.neutralSec += s.neutralSec;
     total.nonProductiveSec += s.nonProductiveSec; total.overtimeSec += s.overtimeSec || 0;
     const key = s.employeeId;
-    if (!byEmp.has(key)) byEmp.set(key, { name: s.employee?.displayName || s.employee?.upn || 'Unnamed', activeSec: 0, productiveSec: 0, overtimeSec: 0 });
+    if (!byEmp.has(key)) byEmp.set(key, { name: s.employee?.displayName || s.employee?.upn || 'Unnamed', activeSec: 0, idleSec: 0, productiveSec: 0, overtimeSec: 0 });
     const e = byEmp.get(key);
-    e.activeSec += s.activeSec; e.productiveSec += s.productiveSec; e.overtimeSec += s.overtimeSec || 0;
+    e.activeSec += s.activeSec; e.idleSec += s.idleSec; e.productiveSec += s.productiveSec; e.overtimeSec += s.overtimeSec || 0;
   }
-  const pct = (p, a) => (a > 0 ? Math.round((p / a) * 100) : 0);
+  // Productivity = productive ÷ all tracked time (active + idle), so idle counts.
+  const pct = (p, active, idle) => { const present = (active || 0) + (idle || 0); return present > 0 ? Math.round((p / present) * 100) : 0; };
   const employees = [...byEmp.values()]
-    .map((e) => ({ ...e, productivityPct: pct(e.productiveSec, e.activeSec) }))
+    .map((e) => ({ ...e, productivityPct: pct(e.productiveSec, e.activeSec, e.idleSec) }))
     .sort((a, b) => b.activeSec - a.activeSec);
-  return { total: { ...total, productivityPct: pct(total.productiveSec, total.activeSec) }, employees };
+  return { total: { ...total, productivityPct: pct(total.productiveSec, total.activeSec, total.idleSec) }, employees };
 }
 
 function renderHtml({ orgName, periodLabel, total, employees }) {

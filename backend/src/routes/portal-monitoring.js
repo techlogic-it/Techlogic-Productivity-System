@@ -112,12 +112,19 @@ router.get(
       e.overtimeSec += s.overtimeSec || 0; e.overtimeProductiveSec += s.overtimeProductiveSec || 0;
     }
 
-    const withPct = (row) => ({
-      ...row,
-      productivityPct: row.activeSec > 0 ? Math.round((row.productiveSec / row.activeSec) * 100) : 0,
-      // Of the overtime worked, how much was productive.
-      overtimePct: row.overtimeSec > 0 ? Math.round((row.overtimeProductiveSec / row.overtimeSec) * 100) : 0,
-    });
+    const withPct = (row) => {
+      // Productivity = productive ÷ all tracked office time (active + idle), so
+      // idle time counts against it (a lot of idle ⇒ lower productivity).
+      const present = (row.activeSec || 0) + (row.idleSec || 0);
+      return {
+        ...row,
+        productivityPct: present > 0 ? Math.round((row.productiveSec / present) * 100) : 0,
+        // How much of ACTIVE time was productive (focus while at the keyboard).
+        activeProductivityPct: row.activeSec > 0 ? Math.round((row.productiveSec / row.activeSec) * 100) : 0,
+        // Of the overtime worked, how much was productive.
+        overtimePct: row.overtimeSec > 0 ? Math.round((row.overtimeProductiveSec / row.overtimeSec) * 100) : 0,
+      };
+    };
 
     if (employeeId) await logAccess(req.portalUser, 'VIEW_EMPLOYEE', { targetEmployeeId: employeeId });
 
@@ -309,7 +316,8 @@ router.get(
     const header = ['Date', 'Employee', 'Active (s)', 'Idle (s)', 'Productive (s)', 'Neutral (s)', 'Non-productive (s)', 'Overtime (s)', 'Productive overtime (s)', 'Productivity %'];
     const lines = [header.map(esc).join(',')];
     for (const r of rows) {
-      const pct = r.activeSec > 0 ? Math.round((r.productiveSec / r.activeSec) * 100) : 0;
+      const present = (r.activeSec || 0) + (r.idleSec || 0);
+      const pct = present > 0 ? Math.round((r.productiveSec / present) * 100) : 0;
       lines.push([
         r.summaryDate.toISOString().slice(0, 10),
         r.employee?.displayName || r.employee?.upn || 'Unknown',
