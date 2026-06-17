@@ -32,6 +32,18 @@ export default function PortalEmployee() {
   const name = day.employees?.[0]?.displayName || events[0]?.employee?.displayName || 'Employee';
   const t = day.total || {};
 
+  // Optional time-of-day window — narrows the timeline + apps/sites to a period
+  // of the day (default: whole day). Client-side over the day's events.
+  const [fromTime, setFromTime] = useState('');
+  const [toTime, setToTime] = useState('');
+  const toMin = (s) => { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+  const windowed = !!(fromTime || toTime);
+  const filteredEvents = useMemo(() => {
+    const f = toMin(fromTime), tt = toMin(toTime);
+    if (f == null && tt == null) return events;
+    return events.filter((e) => { const d = new Date(e.startTime); const m = d.getHours() * 60 + d.getMinutes(); return (f == null || m >= f) && (tt == null || m <= tt); });
+  }, [events, fromTime, toTime]);
+
   // Per-hour activity intensity for the day — active seconds (and the productive
   // slice) bucketed by the local hour the interval started in.
   const hourly = useMemo(() => {
@@ -51,7 +63,7 @@ export default function PortalEmployee() {
   const appBreakdown = useMemo(() => {
     const map = new Map();
     let totalSec = 0;
-    for (const e of events) {
+    for (const e of filteredEvents) {
       if (e.isIdle) continue;
       const sec = e.durationSec || 0;
       if (!sec) continue;
@@ -71,17 +83,26 @@ export default function PortalEmployee() {
     return [...map.values()]
       .map((r) => ({ label: r.label, sec: r.sec, weight: top(r.weights) || 'NEUTRAL', category: top(r.categories) || 'UNCATEGORISED', pct: totalSec ? Math.round((r.sec / totalSec) * 100) : 0 }))
       .sort((a, b) => b.sec - a.sec);
-  }, [events]);
+  }, [filteredEvents]);
 
   return (
     <div className="max-w-4xl">
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-start justify-between mb-5 flex-wrap gap-3">
         <div>
           <Link to="/portal/employees" className="text-sm text-teal-700 hover:underline">← People</Link>
           <h1 className="text-xl font-bold text-gray-800">{name}</h1>
         </div>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
-          className="rounded-lg border border-gray-300 px-2 py-1 text-sm" />
+        <div className="flex items-center gap-2 text-sm flex-wrap">
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+            className="rounded-lg border border-gray-300 px-2 py-1" />
+          <span className="text-gray-400 text-xs">Time</span>
+          <input type="time" value={fromTime} onChange={(e) => setFromTime(e.target.value)}
+            className="rounded-lg border border-gray-300 px-2 py-1" />
+          <span className="text-gray-400">→</span>
+          <input type="time" value={toTime} onChange={(e) => setToTime(e.target.value)}
+            className="rounded-lg border border-gray-300 px-2 py-1" />
+          {windowed && <button onClick={() => { setFromTime(''); setToTime(''); }} className="text-xs text-teal-700 hover:underline">Clear</button>}
+        </div>
       </div>
 
       {error && <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
@@ -128,11 +149,14 @@ export default function PortalEmployee() {
       )}
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
-        <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-700 text-sm">Apps &amp; sites</div>
+        <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-700 text-sm flex items-center justify-between">
+          <span>Apps &amp; sites</span>
+          {windowed && <span className="text-xs font-normal text-gray-400">{fromTime || '00:00'}–{toTime || '23:59'}</span>}
+        </div>
         {loading ? (
           <div className="p-6 text-gray-400 text-sm">Loading…</div>
         ) : appBreakdown.length === 0 ? (
-          <div className="p-6 text-gray-400 text-sm">No app activity recorded for this day.</div>
+          <div className="p-6 text-gray-400 text-sm">{windowed ? 'No app activity in the selected time window.' : 'No app activity recorded for this day.'}</div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
@@ -164,11 +188,14 @@ export default function PortalEmployee() {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-700 text-sm">Timeline</div>
+        <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-700 text-sm flex items-center justify-between">
+          <span>Timeline</span>
+          {windowed && <span className="text-xs font-normal text-gray-400">{filteredEvents.length} of {events.length} entries · {fromTime || '00:00'}–{toTime || '23:59'}</span>}
+        </div>
         {loading ? (
           <div className="p-6 text-gray-400 text-sm">Loading…</div>
-        ) : events.length === 0 ? (
-          <div className="p-6 text-gray-400 text-sm">No activity recorded for this day.</div>
+        ) : filteredEvents.length === 0 ? (
+          <div className="p-6 text-gray-400 text-sm">{windowed && events.length > 0 ? 'No activity in the selected time window.' : 'No activity recorded for this day.'}</div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
@@ -181,7 +208,7 @@ export default function PortalEmployee() {
               </tr>
             </thead>
             <tbody>
-              {events.map((e) => (
+              {filteredEvents.map((e) => (
                 <tr key={e.id} className="border-t border-gray-100">
                   <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{fmtTime(e.startTime)}</td>
                   <td className="px-4 py-2 font-medium text-gray-800">{e.resolvedDisplayName || e.processName}</td>
