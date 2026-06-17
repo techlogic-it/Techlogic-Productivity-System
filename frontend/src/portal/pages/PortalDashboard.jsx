@@ -49,18 +49,20 @@ function TrendChart({ days, period }) {
           const h = (b.activeSec / max) * 100;
           const seg = (sec) => (b.activeSec > 0 ? `${(sec / b.activeSec) * 100}%` : '0%');
           return (
-            <div key={b.key} className="flex-1 min-w-[28px] flex flex-col items-center gap-1 group">
-              <div className="text-[10px] text-gray-500">{pct}%</div>
+            <div key={b.key} className="flex-1 min-w-[28px] h-full flex flex-col justify-end items-center">
+              <div className="text-[10px] text-gray-500 mb-0.5">{pct}%</div>
               <div className="w-full rounded-t overflow-hidden bg-gray-100 flex flex-col-reverse" style={{ height: `${h}%`, minHeight: 4 }}
                 title={`${b.label} · ${fmtDur(b.activeSec)} active · ${pct}% productive`}>
                 <div style={{ height: seg(b.productiveSec) }} className="bg-green-500" />
                 <div style={{ height: seg(b.neutralSec) }} className="bg-gray-300" />
                 <div style={{ height: seg(b.nonProductiveSec) }} className="bg-red-400" />
               </div>
-              <div className="text-[10px] text-gray-400 whitespace-nowrap">{b.label}</div>
             </div>
           );
         })}
+      </div>
+      <div className="flex gap-2 mt-1" style={{ minWidth: buckets.length * 40 }}>
+        {buckets.map((b) => <div key={b.key} className="flex-1 min-w-[28px] text-center text-[10px] text-gray-400 whitespace-nowrap">{b.label}</div>)}
       </div>
       <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-green-500 inline-block" /> Productive</span>
