@@ -95,6 +95,7 @@ internal sealed class AgentState
 {
     public string? DeviceId { get; set; }
     public string? AgentToken { get; set; }
+    public string? EnrolledKey { get; set; } // the company key this device enrolled with
     public bool Claimed { get; set; }
 
     public static AgentState Load(string path)

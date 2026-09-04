@@ -71,9 +71,15 @@ internal static class Program
 
     private static async Task EnsureEnrolled(Config cfg, AgentState state, Identity id)
     {
-        if (!string.IsNullOrEmpty(state.AgentToken)) return;
+        // Re-enrol if we have no token OR the enrolment key changed — e.g. a new
+        // installer re-pointed this PC to a different company. Without the key check
+        // the PC would silently keep its old company's enrolment.
+        var haveToken = !string.IsNullOrEmpty(state.AgentToken);
+        var keyChanged = !string.IsNullOrEmpty(cfg.EnrollmentKey) && state.EnrolledKey != cfg.EnrollmentKey;
+        if (haveToken && !keyChanged) return;
         if (string.IsNullOrEmpty(cfg.EnrollmentKey))
             throw new Exception("Not enrolled and no enrollmentKey provided");
+        if (keyChanged) Log("enrolment key changed — re-enrolling this device into the new company…");
 
         Log($"enrolling device \"{id.DeviceName}\"…");
         var body = JsonSerializer.Serialize(new
@@ -89,6 +95,8 @@ internal static class Program
         using var doc = JsonDocument.Parse(text);
         state.DeviceId = doc.RootElement.GetProperty("deviceId").GetString();
         state.AgentToken = doc.RootElement.GetProperty("agentToken").GetString();
+        state.EnrolledKey = cfg.EnrollmentKey; // remember which company/key this device is for
+        state.Claimed = false; // a fresh enrolment hasn't redeemed a claim code yet
         state.Save(cfg.StatePath);
         Log($"enrolled (deviceId {state.DeviceId})");
     }
