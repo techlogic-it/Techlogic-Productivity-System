@@ -107,7 +107,7 @@ internal static class Program
         {
             enrollmentKey = cfg.EnrollmentKey,
             deviceName = id.DeviceName,
-            agentVersion = "win-0.1.0",
+            agentVersion = "win-0.3.0",
         });
         using var res = await Http.PostAsync($"{cfg.ServerUrl}/api/monitoring/enroll", Json(body));
         var text = await res.Content.ReadAsStringAsync();
@@ -211,7 +211,7 @@ internal sealed class Agent
         if (!string.IsNullOrEmpty(_cfg.ClaimCode) && !_state.Claimed)
             employee["claimCode"] = _cfg.ClaimCode;
 
-        var body = JsonSerializer.Serialize(new { employee, events = batch, sessionEvents = Array.Empty<object>(), agentVersion = "win-0.1.0" });
+        var body = JsonSerializer.Serialize(new { employee, events = batch, sessionEvents = Array.Empty<object>(), agentVersion = "win-0.3.0" });
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, $"{_cfg.ServerUrl}/api/monitoring/ingest") { Content = Program.Json(body) };
