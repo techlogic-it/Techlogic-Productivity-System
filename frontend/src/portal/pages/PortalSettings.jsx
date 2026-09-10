@@ -224,6 +224,11 @@ export default function PortalSettings() {
           </Card>
 
           <Card title="Screenshots" subtitle="Periodic desktop captures, in addition to app/window tracking.">
+            <a href="/employee-monitoring-policy-template.docx" download
+              className="inline-flex items-center gap-1.5 text-sm text-teal-700 hover:underline mb-4">
+              ⬇ Download employee monitoring policy template (.docx)
+            </a>
+            <p className="text-xs text-gray-400 -mt-3 mb-4">Have staff read and sign this before turning screenshots on — edit the [placeholders] for your company first.</p>
             {!s.screenshotsAvailable ? (
               <p className="text-sm text-gray-500">Screenshot storage isn't set up on this server yet — ask your provider to configure it before you can turn this on.</p>
             ) : (
