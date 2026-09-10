@@ -5,6 +5,7 @@ import path from 'path';
 
 import { authenticateAgent, generateAgentToken, hashAgentToken } from '../middleware/agent-auth.js';
 import { hashEnrollmentKey } from '../lib/enrollment.js';
+import { putScreenshot, screenshotsConfigured } from '../lib/screenshots.js';
 import prisma from '../prisma.js';
 
 const router = Router();
@@ -115,13 +116,17 @@ router.get('/agent-download', (req, res) => {
 // Per-org policy: the company can override the idle threshold; everything else is
 // the global default. The agent applies this on its next /config poll.
 async function policyForDevice(device) {
-  const policy = { ...AGENT_POLICY };
+  const policy = { ...AGENT_POLICY, collectScreenshots: false, screenshotIntervalSec: 300 };
   if (device?.organisationId) {
     const setting = await prisma.monitoringSetting.findUnique({
       where: { organisationId: device.organisationId },
-      select: { idleThresholdSec: true },
+      select: { idleThresholdSec: true, screenshotsEnabled: true, screenshotIntervalSec: true },
     });
     if (setting?.idleThresholdSec != null) policy.idleThresholdSec = setting.idleThresholdSec;
+    // Screenshots require both the company opting in AND R2 actually configured
+    // on this deployment — never tell an agent to capture into a void.
+    policy.collectScreenshots = !!setting?.screenshotsEnabled && screenshotsConfigured();
+    if (setting?.screenshotIntervalSec) policy.screenshotIntervalSec = setting.screenshotIntervalSec;
   }
   return policy;
 }
@@ -302,6 +307,46 @@ router.post('/ingest', authenticateAgent, asyncHandler(async (req, res) => {
   });
 
   res.json({ acceptedEvents: act.count, acceptedSessionEvents: sess.count });
+}));
+
+// POST /api/monitoring/screenshot — one periodic desktop capture, base64 JPEG.
+// Only accepted when the company has screenshotsEnabled AND R2 is configured on
+// this deployment (both checked here, not just trusted from /config) — an agent
+// with a stale/cached policy shouldn't be able to push images into the void, or
+// into a company that's since turned the feature back off.
+// Body: { employee: { localAccountKey, displayName }, capturedAt, imageBase64 }
+router.post('/screenshot', authenticateAgent, asyncHandler(async (req, res) => {
+  const device = req.device;
+  if (!device.organisationId) return res.status(403).json({ error: 'Screenshots are a product-build feature' });
+  if (!screenshotsConfigured()) return res.status(503).json({ error: 'Screenshot storage is not configured on this server' });
+
+  const setting = await prisma.monitoringSetting.findUnique({
+    where: { organisationId: device.organisationId },
+    select: { screenshotsEnabled: true },
+  });
+  if (!setting?.screenshotsEnabled) return res.status(403).json({ error: 'Screenshots are not enabled for this company' });
+
+  const { employee, capturedAt, imageBase64 } = req.body || {};
+  const localKey = employee?.localAccountKey;
+  if (!localKey) return res.status(400).json({ error: 'employee.localAccountKey is required' });
+  if (!imageBase64) return res.status(400).json({ error: 'imageBase64 is required' });
+
+  const buffer = Buffer.from(imageBase64, 'base64');
+  if (buffer.length === 0) return res.status(400).json({ error: 'imageBase64 decoded to empty' });
+  if (buffer.length > 3 * 1024 * 1024) return res.status(413).json({ error: 'Screenshot exceeds 3MB' });
+
+  const emp = await resolveEmployee(device, employee, localKey);
+  if (!emp) return res.json({ stored: false, notMonitored: true }); // over seat limit / removed user
+
+  const when = capturedAt ? new Date(capturedAt) : new Date();
+  const key = `${device.organisationId}/${emp.id}/${when.getTime()}-${device.id}.jpg`;
+  await putScreenshot(key, buffer);
+
+  const row = await prisma.monitoredScreenshot.create({
+    data: { organisationId: device.organisationId, employeeId: emp.id, deviceId: device.id, capturedAt: when, storageKey: key },
+  });
+
+  res.status(201).json({ stored: true, id: row.id });
 }));
 
 // POST /api/monitoring/retire â€” the uninstaller calls this (with the device token)

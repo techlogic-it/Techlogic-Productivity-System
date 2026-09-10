@@ -121,6 +121,10 @@ internal sealed class Policy
     public int UploadIntervalSec { get; set; }
     public bool CollectWindowTitles { get; set; }
     public int MaxBatchSize { get; set; }
+    // Periodic desktop screenshots — off unless the company has opted in (see
+    // MonitoringSetting.screenshotsEnabled); server-controlled, not agent-side.
+    public bool CollectScreenshots { get; set; }
+    public int ScreenshotIntervalSec { get; set; }
 
     public static Policy Default() => new()
     {
@@ -129,6 +133,8 @@ internal sealed class Policy
         UploadIntervalSec = 60,
         CollectWindowTitles = true,
         MaxBatchSize = 1000,
+        CollectScreenshots = false,
+        ScreenshotIntervalSec = 300,
     };
 }
 

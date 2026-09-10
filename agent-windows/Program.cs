@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
@@ -45,6 +47,7 @@ internal static class Program
             agent.SampleOnce();
 
             var lastUpload = DateTime.UtcNow;
+            var lastScreenshot = DateTime.MinValue; // MinValue so the first capture fires promptly, not after a full interval
             while (!cts.IsCancellationRequested)
             {
                 try { await Task.Delay(policy.SampleIntervalSec * 1000, cts.Token); }
@@ -55,6 +58,11 @@ internal static class Program
                 {
                     await agent.Flush();
                     lastUpload = DateTime.UtcNow;
+                }
+                if (policy.CollectScreenshots && (DateTime.UtcNow - lastScreenshot).TotalSeconds >= policy.ScreenshotIntervalSec)
+                {
+                    await agent.CaptureAndUploadScreenshot();
+                    lastScreenshot = DateTime.UtcNow;
                 }
             }
 
@@ -74,9 +82,22 @@ internal static class Program
         // Re-enrol if we have no token OR the enrolment key changed — e.g. a new
         // installer re-pointed this PC to a different company. Without the key check
         // the PC would silently keep its old company's enrolment.
+        // NOTE: state.EnrolledKey is null for devices enrolled before this field
+        // existed — treat that as "unknown", not "changed", so upgrading the agent
+        // in place doesn't force a spurious re-enrol (and duplicate device) on every
+        // already-enrolled PC. We backfill it below instead.
         var haveToken = !string.IsNullOrEmpty(state.AgentToken);
-        var keyChanged = !string.IsNullOrEmpty(cfg.EnrollmentKey) && state.EnrolledKey != cfg.EnrollmentKey;
-        if (haveToken && !keyChanged) return;
+        var keyChanged = haveToken && state.EnrolledKey != null
+            && !string.IsNullOrEmpty(cfg.EnrollmentKey) && state.EnrolledKey != cfg.EnrollmentKey;
+        if (haveToken && !keyChanged)
+        {
+            if (state.EnrolledKey == null && !string.IsNullOrEmpty(cfg.EnrollmentKey))
+            {
+                state.EnrolledKey = cfg.EnrollmentKey; // backfill so a future real change is still detected
+                state.Save(cfg.StatePath);
+            }
+            return;
+        }
         if (string.IsNullOrEmpty(cfg.EnrollmentKey))
             throw new Exception("Not enrolled and no enrollmentKey provided");
         if (keyChanged) Log("enrolment key changed — re-enrolling this device into the new company…");
@@ -118,6 +139,8 @@ internal static class Program
                 if (p.TryGetProperty("uploadIntervalSec", out var u)) policy.UploadIntervalSec = u.GetInt32();
                 if (p.TryGetProperty("collectWindowTitles", out var c)) policy.CollectWindowTitles = c.GetBoolean();
                 if (p.TryGetProperty("maxBatchSize", out var m)) policy.MaxBatchSize = m.GetInt32();
+                if (p.TryGetProperty("collectScreenshots", out var cs)) policy.CollectScreenshots = cs.GetBoolean();
+                if (p.TryGetProperty("screenshotIntervalSec", out var si)) policy.ScreenshotIntervalSec = si.GetInt32();
             }
         }
         catch { /* keep defaults if the policy fetch fails */ }
@@ -217,6 +240,40 @@ internal sealed class Agent
             Program.Log($"offline — spooled {pending.Count} event(s) for retry ({ex.Message})");
         }
     }
+
+    // One periodic desktop capture. Best-effort: unlike activity events this is
+    // never spooled/retried on failure (no point caching a stale screenshot, and
+    // it avoids ever accumulating captured images on disk) — it just tries again
+    // at the next interval.
+    public async Task CaptureAndUploadScreenshot()
+    {
+        var jpeg = Capture.CaptureScreenJpeg();
+        if (jpeg is null) return;
+
+        var employee = new Dictionary<string, object?>
+        {
+            ["localAccountKey"] = _id.LocalAccountKey,
+            ["displayName"] = _id.DisplayName,
+        };
+        var body = JsonSerializer.Serialize(new
+        {
+            employee,
+            capturedAt = DateTime.UtcNow.ToString("O"),
+            imageBase64 = Convert.ToBase64String(jpeg),
+        });
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{_cfg.ServerUrl}/api/monitoring/screenshot") { Content = Program.Json(body) };
+            req.Headers.Add("Authorization", $"Bearer {_state.AgentToken}");
+            using var res = await new HttpClient().SendAsync(req);
+            if (!res.IsSuccessStatusCode)
+                Program.Log($"screenshot upload failed: {(int)res.StatusCode} {await res.Content.ReadAsStringAsync()}");
+        }
+        catch (Exception ex)
+        {
+            Program.Log($"screenshot upload error: {ex.Message}");
+        }
+    }
 }
 
 internal sealed class Segment
@@ -293,5 +350,50 @@ internal static class Capture
             return (int)(idleMs / 1000);
         }
         catch { return 0; }
+    }
+
+    private const int SM_XVIRTUALSCREEN = 76;
+    private const int SM_YVIRTUALSCREEN = 77;
+    private const int SM_CXVIRTUALSCREEN = 78;
+    private const int SM_CYVIRTUALSCREEN = 79;
+    [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
+
+    // Captures the full virtual desktop (all monitors), downscaled + JPEG-encoded
+    // to keep uploads small. Returns null on any failure (e.g. no desktop session,
+    // locked workstation) — screenshots are best-effort, never worth crashing over.
+    public static byte[]? CaptureScreenJpeg(int jpegQuality = 45, int maxWidth = 1600)
+    {
+        try
+        {
+            var x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            var y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            var w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+            var h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+            if (w <= 0 || h <= 0) return null;
+
+            using var full = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(full))
+                g.CopyFromScreen(x, y, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
+
+            Bitmap? resized = null;
+            var toEncode = full;
+            if (w > maxWidth)
+            {
+                var newH = (int)((long)h * maxWidth / w);
+                resized = new Bitmap(full, new Size(maxWidth, Math.Max(1, newH)));
+                toEncode = resized;
+            }
+            try
+            {
+                var jpegCodec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+                using var eps = new EncoderParameters(1);
+                eps.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)jpegQuality);
+                using var ms = new MemoryStream();
+                toEncode.Save(ms, jpegCodec, eps);
+                return ms.ToArray();
+            }
+            finally { resized?.Dispose(); }
+        }
+        catch { return null; }
     }
 }

@@ -533,10 +533,11 @@ function buildInstallerBat({ serverUrl, key, exeUrl }) {
     '',
     'taskkill /F /IM ProductivityAgent.exe >nul 2>&1',
     'if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"',
-    'rem Reset any previous enrolment so this PC (re)joins THIS company, not an old',
-    'rem one. Without this, a PC that already ran the agent keeps its old device.',
-    'del "%INSTALL_DIR%\\agent.state.json" >nul 2>&1',
-    'del "%INSTALL_DIR%\\agent.spool.jsonl" >nul 2>&1',
+    // Deliberately NOT deleting agent.state.json/agent.spool.jsonl here: the agent
+    // itself now detects an enrolment-key change (a re-run against a different
+    // company's installer) and re-enrols on its own. Wiping state unconditionally
+    // on every run would also force a fresh (duplicate) enrolment on routine
+    // same-company reinstalls/repairs.
     // curl.exe (Windows 10 1803+) is fast and follows the redirect to the release.
     // Fall back to Invoke-WebRequest with the progress bar OFF — leaving it on makes
     // large downloads crawl (PowerShell renders the bar per chunk).

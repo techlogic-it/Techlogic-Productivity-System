@@ -59,6 +59,7 @@ model Organisation {
   titleRules     OrgTitleRule[]
   orgCategories  OrgCategory[]
   providerAssignments ProviderAssignment[]
+  screenshots    MonitoredScreenshot[]
 }
 
 // Which companies a scoped provider user (PROVIDER_SUPPORT / PROVIDER_VIEWER) may
@@ -234,8 +235,28 @@ model MonitoredEmployee {
   sessionEvents SessionEvent[]
   summaries     ActivitySummary[]
   ownedDevices  MonitoredDevice[] @relation("DeviceOwner")
+  screenshots   MonitoredScreenshot[]
 
   @@unique([organisationId, localAccountKey])
+}
+
+// One periodic desktop screenshot. The image itself lives in R2 object storage
+// (storageKey is the bucket key) — only metadata is in Postgres. Only created
+// when MonitoringSetting.screenshotsEnabled is on for the org. Auto-deleted by
+// the retention sweep (see lib/screenshots.js) after SCREENSHOT_RETENTION_DAYS.
+model MonitoredScreenshot {
+  id             String             @id @default(uuid())
+  organisationId String
+  organisation   Organisation       @relation(fields: [organisationId], references: [id])
+  employeeId     String
+  employee       MonitoredEmployee  @relation(fields: [employeeId], references: [id])
+  deviceId       String?
+  capturedAt     DateTime
+  storageKey     String             @unique // R2 object key
+  createdAt      DateTime           @default(now())
+
+  @@index([employeeId, capturedAt])
+  @@index([organisationId, capturedAt])
 }
 
 // Admin-editable catalogue: process name â†’ category + productivity weight.
@@ -407,6 +428,12 @@ model MonitoringSetting {
   digestRecipients   String?  // optional extra recipients, comma-separated emails
   dailyDigestSentOn  String?  // org-local "YYYY-MM-DD" of the last daily send (de-dupe)
   weeklyDigestSentOn String?  // org-local Monday "YYYY-MM-DD" of the last weekly send
+  // Periodic desktop screenshots. Off by default — the highest privacy/compliance
+  // surface of this product; an admin must explicitly opt in per company (and per
+  // the Settings UI notice, tell staff before doing so). Delivered to the agent via
+  // /config, same as idleThresholdSec.
+  screenshotsEnabled     Boolean @default(false)
+  screenshotIntervalSec  Int     @default(300) // how often the agent captures, e.g. 300 = every 5 min
   updatedAt      DateTime      @updatedAt
 }
 

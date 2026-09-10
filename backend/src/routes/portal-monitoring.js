@@ -15,6 +15,7 @@ import {
 } from '../lib/monitoring-rollup.js';
 import { generateAgentToken, hashAgentToken } from '../middleware/agent-auth.js';
 import { sendDigest, emailConfigured } from '../lib/digests.js';
+import { signedScreenshotUrl, screenshotsConfigured } from '../lib/screenshots.js';
 
 const router = Router();
 router.use(authenticatePortal);
@@ -295,6 +296,43 @@ router.get(
   }),
 );
 
+// GET /screenshots?employeeId=&date=YYYY-MM-DD — that day's captures, as
+// short-lived signed URLs (never a public bucket). Viewing screenshots is
+// logged just like the timeline, since it's the most sensitive read this
+// product offers.
+router.get(
+  '/screenshots',
+  asyncHandler(async (req, res) => {
+    const { employeeId, date } = req.query;
+    if (!employeeId) return res.status(400).json({ error: 'employeeId is required' });
+
+    const inScope = await prisma.monitoredEmployee.findFirst({
+      where: { id: employeeId, ...scopeFor(req.portalUser) },
+      select: { id: true },
+    });
+    if (!inScope) return res.status(404).json({ error: 'Employee not found in your scope' });
+
+    const where = { employeeId };
+    if (date) {
+      const start = dateOnly(date);
+      const end = new Date(start); end.setUTCDate(end.getUTCDate() + 1);
+      where.capturedAt = { gte: start, lt: end };
+    }
+
+    const shots = await prisma.monitoredScreenshot.findMany({
+      where,
+      orderBy: { capturedAt: 'asc' },
+      take: 500,
+    });
+    const out = await Promise.all(
+      shots.map(async (s) => ({ id: s.id, capturedAt: s.capturedAt, url: await signedScreenshotUrl(s.storageKey) })),
+    );
+
+    await logAccess(req.portalUser, 'VIEW_SCREENSHOTS', { targetEmployeeId: employeeId, meta: { date, count: out.length } });
+    res.json(out);
+  }),
+);
+
 router.get(
   '/export',
   asyncHandler(async (req, res) => {
@@ -513,7 +551,8 @@ function targetOrgId(req) {
 router.get(
   '/settings',
   asyncHandler(async (req, res) => {
-    res.json(await getMonitoringSettings(targetOrgId(req)));
+    const settings = await getMonitoringSettings(targetOrgId(req));
+    res.json({ ...settings, screenshotsAvailable: screenshotsConfigured() });
   }),
 );
 
@@ -524,9 +563,26 @@ router.put(
     const orgId = targetOrgId(req);
     if (!orgId) return res.status(400).json({ error: 'organisationId is required' });
 
-    const { officeStart, officeEnd, workingDays, timezone, idleThresholdSec, dailyDigest, weeklyDigest, digestRecipients } = req.body || {};
+    const {
+      officeStart, officeEnd, workingDays, timezone, idleThresholdSec,
+      dailyDigest, weeklyDigest, digestRecipients,
+      screenshotsEnabled, screenshotIntervalSec,
+    } = req.body || {};
     const hhmm = /^([01]?\d|2[0-3]):[0-5]\d$/;
     const data = {};
+    if (screenshotsEnabled !== undefined) {
+      if (screenshotsEnabled && !screenshotsConfigured()) {
+        return res.status(400).json({ error: 'Screenshot storage is not configured on this server yet — ask your provider to set it up first.' });
+      }
+      data.screenshotsEnabled = !!screenshotsEnabled;
+    }
+    if (screenshotIntervalSec !== undefined) {
+      const n = Number(screenshotIntervalSec);
+      if (!Number.isInteger(n) || n < 60 || n > 3600) {
+        return res.status(400).json({ error: 'Screenshot interval must be 60–3600 seconds.' });
+      }
+      data.screenshotIntervalSec = n;
+    }
     if (idleThresholdSec !== undefined) {
       const n = idleThresholdSec === null || idleThresholdSec === '' ? null : Number(idleThresholdSec);
       if (n !== null && (!Number.isInteger(n) || n < 30 || n > 7200)) {

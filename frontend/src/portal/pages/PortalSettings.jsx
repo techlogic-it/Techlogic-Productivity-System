@@ -84,6 +84,17 @@ export default function PortalSettings() {
       setS(data); setMsg('Saved');
     } catch (e) { setError(e.response?.data?.error || 'Failed to save'); }
   };
+  const saveScreenshots = async () => {
+    setMsg(''); setError('');
+    try {
+      const { data } = await portalApi.put(`/monitoring/settings${q}`, {
+        organisationId: orgId || undefined,
+        screenshotsEnabled: !!s.screenshotsEnabled,
+        screenshotIntervalSec: Number(s.screenshotIntervalSec) || 300,
+      });
+      setS(data); setMsg('Saved');
+    } catch (e) { setError(e.response?.data?.error || 'Failed to save'); }
+  };
   const [testMsg, setTestMsg] = useState('');
   const sendTest = async (type) => {
     setTestMsg('Sending…');
@@ -210,6 +221,41 @@ export default function PortalSettings() {
               <button onClick={() => sendTest('weekly')} className="rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 text-sm">Send test (weekly)</button>
             </div>
             {testMsg && <p className="text-xs text-gray-500 mt-2">{testMsg}</p>}
+          </Card>
+
+          <Card title="Screenshots" subtitle="Periodic desktop captures, in addition to app/window tracking.">
+            {!s.screenshotsAvailable ? (
+              <p className="text-sm text-gray-500">Screenshot storage isn't set up on this server yet — ask your provider to configure it before you can turn this on.</p>
+            ) : (
+              <>
+                <label className="flex items-center gap-2 text-sm text-gray-700 mb-3">
+                  <input type="checkbox" checked={!!s.screenshotsEnabled} onChange={(e) => setS({ ...s, screenshotsEnabled: e.target.checked })} />
+                  Capture periodic screenshots from monitored PCs
+                </label>
+                {s.screenshotsEnabled && (
+                  <div className="mb-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2">
+                    Make sure staff at this company have been told screenshots are being captured before enabling this — check your obligations under local data-protection law (e.g. UK GDPR).
+                  </div>
+                )}
+                <label className="block text-sm text-gray-600 mb-1">Capture interval</label>
+                <select
+                  value={s.screenshotIntervalSec || 300}
+                  onChange={(e) => setS({ ...s, screenshotIntervalSec: Number(e.target.value) })}
+                  className="w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm mb-3"
+                >
+                  <option value={60}>Every 1 minute</option>
+                  <option value={300}>Every 5 minutes</option>
+                  <option value={600}>Every 10 minutes</option>
+                  <option value={1800}>Every 30 minutes</option>
+                </select>
+                <p className="text-xs text-gray-400 mb-4">Captures apply on each PC's next config refresh. Screenshots are kept for 30 days, then automatically deleted.</p>
+                <div className="flex items-center gap-3">
+                  <button onClick={saveScreenshots} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 text-sm">Save</button>
+                  {msg && <span className="text-green-600 text-sm">{msg}</span>}
+                  {error && <span className="text-red-600 text-sm">{error}</span>}
+                </div>
+              </>
+            )}
           </Card>
 
           <Card title="App categories" subtitle="Mark which apps are productive, social, etc. Changes apply to this company only and recalculate at the next rollup.">

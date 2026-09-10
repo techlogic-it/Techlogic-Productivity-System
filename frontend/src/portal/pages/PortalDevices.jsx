@@ -6,7 +6,6 @@ import { usePortalAuth, isProvider as isProviderRole } from '../PortalAuthContex
 const STATUS_BADGE = {
   ACTIVE: 'bg-green-100 text-green-700',
   DISABLED: 'bg-gray-200 text-gray-600',
-  RETIRED: 'bg-gray-200 text-gray-500',
 };
 
 const fmtSeen = (s) => {
@@ -52,10 +51,18 @@ export default function PortalDevices() {
     portalApi.get('/monitoring/employees?activeOnly=true').then((r) => setEmployees(r.data || [])).catch(() => {});
   }, [isProvider]);
 
-  // Employees of a device's company, for the owner picker.
-  const ownerOptions = (orgId) => employees
-    .filter((e) => (e.organisationId || e.organisation?.id) === orgId)
-    .map((e) => ({ id: e.id, name: e.displayName || e.localAccountKey || 'Unnamed' }));
+  // Employees of a device's company, for the owner picker. Always includes the
+  // device's current owner even if they've since gone inactive, so the picker
+  // never silently shows "Unassigned" for a device that actually has an owner.
+  const ownerOptions = (d) => {
+    const opts = employees
+      .filter((e) => (e.organisationId || e.organisation?.id) === d.organisationId)
+      .map((e) => ({ id: e.id, name: e.displayName || e.localAccountKey || 'Unnamed' }));
+    if (d.owner && !opts.some((o) => o.id === d.owner.id)) {
+      opts.push({ id: d.owner.id, name: `${d.owner.name} (inactive)` });
+    }
+    return opts;
+  };
 
   const assignOwner = async (d, employeeId) => {
     try { await portalApi.patch(`/monitoring/devices/${d.id}`, { ownerEmployeeId: employeeId || null }); load(); }
@@ -76,9 +83,9 @@ export default function PortalDevices() {
 
   const q = search.trim().toLowerCase();
   const visible = devices
-    .filter((d) => (showRetired ? true : d.status !== 'RETIRED'))
+    .filter((d) => (showRetired ? true : d.status !== 'DISABLED'))
     .filter((d) => !q || [d.deviceName, d.organisation?.name, ...(d.users || []).map((u) => u.name)].some((v) => (v || '').toLowerCase().includes(q)));
-  const retiredCount = devices.filter((d) => d.status === 'RETIRED').length;
+  const retiredCount = devices.filter((d) => d.status === 'DISABLED').length;
 
   return (
     <div className="max-w-6xl">
@@ -144,7 +151,7 @@ export default function PortalDevices() {
                           <select value={d.owner?.id || ''} onChange={(e) => assignOwner(d, e.target.value)}
                             className="rounded-lg border border-gray-300 px-2 py-1 text-xs max-w-[160px]">
                             <option value="">— Unassigned —</option>
-                            {ownerOptions(d.organisationId).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                            {ownerOptions(d).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
                           </select>
                         )}
                     </td>

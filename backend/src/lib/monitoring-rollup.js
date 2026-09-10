@@ -85,6 +85,8 @@ const DEFAULT_SETTINGS = {
   officeEnd: process.env.MON_OFFICE_END || '18:00',
   workingDays: process.env.MON_OFFICE_DAYS || '1,2,3,4,5', // 1=Mon … 7=Sun
   timezone: process.env.MON_OFFICE_TZ || 'Europe/London',
+  screenshotsEnabled: false,
+  screenshotIntervalSec: 300,
 };
 
 // Load the settings row. With an organisationId, returns that org's row (product
