@@ -6,9 +6,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import monitoringRouter from './routes/monitoring.js';
+import workSessionsRouter from './routes/work-sessions.js';
 import portalAuthRouter from './routes/portal-auth.js';
 import orgsRouter from './routes/orgs.js';
 import portalMonitoringRouter from './routes/portal-monitoring.js';
+import portalWorkRouter from './routes/portal-work.js';
 import { runMonitoringRollup, runMonitoringRetention } from './lib/monitoring-rollup.js';
 import { runDigests } from './lib/digests.js';
 import { runScreenshotRetention } from './lib/screenshots.js';
@@ -23,10 +25,12 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Dat
 
 // Agent plane (enrol / config / ingest / download) — per-device token, no Entra.
 app.use('/api/monitoring', monitoringRouter);
+app.use('/api/monitoring', workSessionsRouter);
 // Portal (dashboard) plane — email+password JWT.
 app.use('/api/portal/auth', portalAuthRouter);
 app.use('/api/portal/orgs', orgsRouter);
 app.use('/api/portal/monitoring', portalMonitoringRouter);
+app.use('/api/portal/monitoring', portalWorkRouter);
 
 // Single-service deploy: serve the built portal (frontend/dist) and SPA-fallback
 // non-API routes to index.html. Skipped in dev where Vite serves the frontend.

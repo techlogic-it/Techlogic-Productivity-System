@@ -60,6 +60,8 @@ model Organisation {
   orgCategories  OrgCategory[]
   providerAssignments ProviderAssignment[]
   screenshots    MonitoredScreenshot[]
+  clients        Client[]
+  workSessions   WorkSession[]
 }
 
 // Which companies a scoped provider user (PROVIDER_SUPPORT / PROVIDER_VIEWER) may
@@ -236,6 +238,7 @@ model MonitoredEmployee {
   summaries     ActivitySummary[]
   ownedDevices  MonitoredDevice[] @relation("DeviceOwner")
   screenshots   MonitoredScreenshot[]
+  workSessions  WorkSession[]
 
   @@unique([organisationId, localAccountKey])
 }
@@ -257,6 +260,53 @@ model MonitoredScreenshot {
 
   @@index([employeeId, capturedAt])
   @@index([organisationId, capturedAt])
+}
+
+// A billable client/customer, managed per-company (Settings/Clients). Distinct
+// from the MSP-internal Customer model — this product has no access to that
+// database, so each company using Techlogic Productivity System keeps its own
+// list. Used by the desktop work-tracker widget's client picker.
+model Client {
+  id             String        @id @default(uuid())
+  organisationId String
+  organisation   Organisation  @relation(fields: [organisationId], references: [id])
+  name           String
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  workSessions   WorkSession[]
+
+  @@unique([organisationId, name])
+}
+
+// One timed task, started/stopped from the agent's work-tracker widget. An
+// employee can run several concurrently (e.g. switching between two clients'
+// work without losing either timer) — nothing here assumes only one open
+// session per employee. endTime null = still running.
+model WorkSession {
+  id              String             @id @default(uuid())
+  organisationId  String
+  organisation    Organisation       @relation(fields: [organisationId], references: [id])
+  employeeId      String
+  employee        MonitoredEmployee  @relation(fields: [employeeId], references: [id])
+  deviceId        String?
+  clientId        String?
+  client          Client?            @relation(fields: [clientId], references: [id])
+  taskName        String
+  notes           String?
+  startTime       DateTime
+  endTime         DateTime?
+  // Set by the agent (a GUID per Start click) so a spotty connection can retry
+  // start/end calls safely, and so the widget can recover open sessions after
+  // the PC restarts (GET /work/open) without creating duplicates.
+  agentSessionId  String             @unique
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([employeeId, startTime])
+  @@index([organisationId, startTime])
+  @@index([clientId, startTime])
 }
 
 // Admin-editable catalogue: process name â†’ category + productivity weight.

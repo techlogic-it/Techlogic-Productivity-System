@@ -16,7 +16,13 @@ internal static class Program
 {
     private static readonly HttpClient Http = new();
 
-    private static async Task<int> Main(string[] args)
+    // WinForms' message loop (Application.Run) must own the main thread in the
+    // STA apartment, so the async startup work (enrol, fetch policy) runs
+    // synchronously-blocking here first, then the background tracker loop runs
+    // on its own Task while Application.Run takes the main thread for the
+    // work-tracker widget.
+    [STAThread]
+    private static int Main(string[] args)
     {
         try
         {
@@ -24,8 +30,8 @@ internal static class Program
             var state = AgentState.Load(cfg.StatePath);
             var id = Identity.Get();
 
-            await EnsureEnrolled(cfg, state, id);
-            var policy = await FetchPolicy(cfg, state);
+            EnsureEnrolled(cfg, state, id).GetAwaiter().GetResult();
+            var policy = FetchPolicy(cfg, state).GetAwaiter().GetResult();
             Log($"policy: sample {policy.SampleIntervalSec}s · upload {policy.UploadIntervalSec}s · idle {policy.IdleThresholdSec}s · titles {policy.CollectWindowTitles}");
             Log($"identity: {id.DisplayName} ({id.LocalAccountKey}){(cfg.ClaimCode is null ? "" : $" · claim {cfg.ClaimCode}")}");
 
@@ -34,40 +40,26 @@ internal static class Program
             if (cfg.Once)
             {
                 agent.SampleOnce();
-                await Task.Delay(2000);
+                Thread.Sleep(2000);
                 agent.SampleOnce();
-                await agent.Flush();
+                agent.Flush().GetAwaiter().GetResult();
                 Log("done (--once)");
                 return 0;
             }
 
             using var cts = new CancellationTokenSource();
-            Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
-            Log("running — Ctrl-C to stop");
-            agent.SampleOnce();
+            Log("running — background tracker + work-tracker widget");
+            var backgroundLoop = Task.Run(() => RunBackgroundLoop(agent, policy, cts.Token));
 
-            var lastUpload = DateTime.UtcNow;
-            var lastScreenshot = DateTime.MinValue; // MinValue so the first capture fires promptly, not after a full interval
-            while (!cts.IsCancellationRequested)
-            {
-                try { await Task.Delay(policy.SampleIntervalSec * 1000, cts.Token); }
-                catch (TaskCanceledException) { break; }
-
-                agent.SampleOnce();
-                if ((DateTime.UtcNow - lastUpload).TotalSeconds >= policy.UploadIntervalSec)
-                {
-                    await agent.Flush();
-                    lastUpload = DateTime.UtcNow;
-                }
-                if (policy.CollectScreenshots && (DateTime.UtcNow - lastScreenshot).TotalSeconds >= policy.ScreenshotIntervalSec)
-                {
-                    await agent.CaptureAndUploadScreenshot();
-                    lastScreenshot = DateTime.UtcNow;
-                }
-            }
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            using (var widget = new WorkTrackerForm(cfg, state, id))
+                Application.Run(widget);
 
             Log("shutting down — final flush…");
-            await agent.Flush();
+            cts.Cancel();
+            backgroundLoop.GetAwaiter().GetResult();
             return 0;
         }
         catch (Exception ex)
@@ -75,6 +67,31 @@ internal static class Program
             Log($"error: {ex.Message}");
             return 1;
         }
+    }
+
+    private static async Task RunBackgroundLoop(Agent agent, Policy policy, CancellationToken token)
+    {
+        agent.SampleOnce();
+        var lastUpload = DateTime.UtcNow;
+        var lastScreenshot = DateTime.MinValue; // MinValue so the first capture fires promptly, not after a full interval
+        while (!token.IsCancellationRequested)
+        {
+            try { await Task.Delay(policy.SampleIntervalSec * 1000, token); }
+            catch (TaskCanceledException) { break; }
+
+            agent.SampleOnce();
+            if ((DateTime.UtcNow - lastUpload).TotalSeconds >= policy.UploadIntervalSec)
+            {
+                await agent.Flush();
+                lastUpload = DateTime.UtcNow;
+            }
+            if (policy.CollectScreenshots && (DateTime.UtcNow - lastScreenshot).TotalSeconds >= policy.ScreenshotIntervalSec)
+            {
+                await agent.CaptureAndUploadScreenshot();
+                lastScreenshot = DateTime.UtcNow;
+            }
+        }
+        await agent.Flush();
     }
 
     private static async Task EnsureEnrolled(Config cfg, AgentState state, Identity id)

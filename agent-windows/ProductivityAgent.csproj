@@ -1,7 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- WinExe (no console window) so the always-on-top work-tracker widget
+         doesn't sit behind an ugly console. Log() output is still written via
+         Console.WriteLine, visible when launched with redirected output (e.g.
+         diagnose-agent.bat) but not when double-clicked/autostarted. -->
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -16,10 +20,10 @@
     <PublishTrimmed>false</PublishTrimmed>
     <!-- Compress the bundled assemblies to roughly halve the download size. -->
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Work-tracker widget (System.Windows.Forms) + screenshot capture
+         (System.Drawing) both come from the Windows Desktop shared framework
+         with this on — no separate System.Drawing.Common package needed. -->
+    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="System.Drawing.Common" Version="10.0.12" />
-  </ItemGroup>
 
 </Project>

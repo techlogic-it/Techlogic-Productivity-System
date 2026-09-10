@@ -142,7 +142,7 @@ router.get('/config', authenticateAgent, asyncHandler(async (req, res) => {
 //                     an admin maps it (product build);
 //   legacy         â†’ upsert by entraUserId when the device has no organisation
 //                     (internal Scenario-B build, unchanged behaviour).
-async function resolveEmployee(device, employee, localKey) {
+export async function resolveEmployee(device, employee, localKey) {
   const orgId = device.organisationId;
 
   // Path A â€” claim code redemption (product).
