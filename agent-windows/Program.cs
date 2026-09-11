@@ -48,18 +48,33 @@ internal static class Program
             }
 
             using var cts = new CancellationTokenSource();
-            Log("running — background tracker + work-tracker widget");
-            var backgroundLoop = Task.Run(() => RunBackgroundLoop(agent, policy, cts.Token));
 
-            Application.SetHighDpiMode(HighDpiMode.SystemAware);
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            using (var widget = new WorkTrackerForm(cfg, state, id))
-                Application.Run(widget);
+            // The work-tracker widget is opt-in per company (MonitoringSetting.
+            // workTrackerEnabled) — most companies just want silent passive
+            // tracking with no on-screen window. Activity/idle tracking and
+            // screenshots run in RunBackgroundLoop either way, completely
+            // independent of whether the widget exists at all.
+            if (policy.WorkTrackerEnabled)
+            {
+                Log("running — background tracker + work-tracker widget");
+                var backgroundLoop = Task.Run(() => RunBackgroundLoop(agent, policy, cts.Token));
 
-            Log("shutting down — final flush…");
-            cts.Cancel();
-            backgroundLoop.GetAwaiter().GetResult();
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                using (var widget = new WorkTrackerForm(cfg, state, id))
+                    Application.Run(widget);
+
+                Log("shutting down — final flush…");
+                cts.Cancel();
+                backgroundLoop.GetAwaiter().GetResult();
+            }
+            else
+            {
+                Log("running — background tracker only (work tracker not enabled for this company)");
+                Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+                RunBackgroundLoop(agent, policy, cts.Token).GetAwaiter().GetResult();
+            }
             return 0;
         }
         catch (Exception ex)
@@ -158,6 +173,7 @@ internal static class Program
                 if (p.TryGetProperty("maxBatchSize", out var m)) policy.MaxBatchSize = m.GetInt32();
                 if (p.TryGetProperty("collectScreenshots", out var cs)) policy.CollectScreenshots = cs.GetBoolean();
                 if (p.TryGetProperty("screenshotIntervalSec", out var si)) policy.ScreenshotIntervalSec = si.GetInt32();
+                if (p.TryGetProperty("workTrackerEnabled", out var wt)) policy.WorkTrackerEnabled = wt.GetBoolean();
             }
         }
         catch { /* keep defaults if the policy fetch fails */ }

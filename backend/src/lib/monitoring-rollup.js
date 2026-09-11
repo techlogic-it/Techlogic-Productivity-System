@@ -87,6 +87,7 @@ const DEFAULT_SETTINGS = {
   timezone: process.env.MON_OFFICE_TZ || 'Europe/London',
   screenshotsEnabled: false,
   screenshotIntervalSec: 300,
+  workTrackerEnabled: false,
 };
 
 // Load the settings row. With an organisationId, returns that org's row (product

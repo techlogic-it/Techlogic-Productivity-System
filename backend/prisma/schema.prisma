@@ -484,6 +484,11 @@ model MonitoringSetting {
   // /config, same as idleThresholdSec.
   screenshotsEnabled     Boolean @default(false)
   screenshotIntervalSec  Int     @default(300) // how often the agent captures, e.g. 300 = every 5 min
+  // Desktop work-tracker widget (pick a client, start/stop timed tasks). Off by
+  // default — some companies only want silent passive monitoring and never
+  // asked for an on-screen widget appearing on staff PCs. Independent of
+  // screenshots/activity tracking, which run regardless of this setting.
+  workTrackerEnabled    Boolean @default(false)
   updatedAt      DateTime      @updatedAt
 }
 

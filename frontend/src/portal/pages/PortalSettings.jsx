@@ -95,6 +95,16 @@ export default function PortalSettings() {
       setS(data); setMsg('Saved');
     } catch (e) { setError(e.response?.data?.error || 'Failed to save'); }
   };
+  const saveWorkTracker = async () => {
+    setMsg(''); setError('');
+    try {
+      const { data } = await portalApi.put(`/monitoring/settings${q}`, {
+        organisationId: orgId || undefined,
+        workTrackerEnabled: !!s.workTrackerEnabled,
+      });
+      setS(data); setMsg('Saved');
+    } catch (e) { setError(e.response?.data?.error || 'Failed to save'); }
+  };
   const [testMsg, setTestMsg] = useState('');
   const sendTest = async (type) => {
     setTestMsg('Sending…');
@@ -261,6 +271,24 @@ export default function PortalSettings() {
                 </div>
               </>
             )}
+          </Card>
+
+          <Card title="Work Tracker" subtitle="An on-screen widget where staff pick a client, start/stop timed tasks — several at once if needed.">
+            <label className="flex items-center gap-2 text-sm text-gray-700 mb-3">
+              <input type="checkbox" checked={!!s.workTrackerEnabled} onChange={(e) => setS({ ...s, workTrackerEnabled: e.target.checked })} />
+              Show the work-tracker widget on monitored PCs
+            </label>
+            <p className="text-xs text-gray-400 mb-4">
+              Independent of app/window tracking and screenshots, which always run. Off by default — turn this on only if your
+              staff bill time to clients and you want them logging it themselves. Manage your client list and see time-by-client
+              reports on the <a href="/portal/time-tracking" className="text-teal-700 hover:underline">Time Tracking</a> page.
+              Applies on each PC's next config refresh.
+            </p>
+            <div className="flex items-center gap-3">
+              <button onClick={saveWorkTracker} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 text-sm">Save</button>
+              {msg && <span className="text-green-600 text-sm">{msg}</span>}
+              {error && <span className="text-red-600 text-sm">{error}</span>}
+            </div>
           </Card>
 
           <Card title="App categories" subtitle="Mark which apps are productive, social, etc. Changes apply to this company only and recalculate at the next rollup.">

@@ -566,7 +566,7 @@ router.put(
     const {
       officeStart, officeEnd, workingDays, timezone, idleThresholdSec,
       dailyDigest, weeklyDigest, digestRecipients,
-      screenshotsEnabled, screenshotIntervalSec,
+      screenshotsEnabled, screenshotIntervalSec, workTrackerEnabled,
     } = req.body || {};
     const hhmm = /^([01]?\d|2[0-3]):[0-5]\d$/;
     const data = {};
@@ -576,6 +576,7 @@ router.put(
       }
       data.screenshotsEnabled = !!screenshotsEnabled;
     }
+    if (workTrackerEnabled !== undefined) data.workTrackerEnabled = !!workTrackerEnabled;
     if (screenshotIntervalSec !== undefined) {
       const n = Number(screenshotIntervalSec);
       if (!Number.isInteger(n) || n < 60 || n > 3600) {

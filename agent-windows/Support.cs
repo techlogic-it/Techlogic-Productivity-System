@@ -125,6 +125,10 @@ internal sealed class Policy
     // MonitoringSetting.screenshotsEnabled); server-controlled, not agent-side.
     public bool CollectScreenshots { get; set; }
     public int ScreenshotIntervalSec { get; set; }
+    // Desktop work-tracker widget — off unless the company opted in (see
+    // MonitoringSetting.workTrackerEnabled). Independent of screenshots/activity
+    // tracking, which run regardless of this.
+    public bool WorkTrackerEnabled { get; set; }
 
     public static Policy Default() => new()
     {
@@ -135,6 +139,7 @@ internal sealed class Policy
         MaxBatchSize = 1000,
         CollectScreenshots = false,
         ScreenshotIntervalSec = 300,
+        WorkTrackerEnabled = false,
     };
 }
 

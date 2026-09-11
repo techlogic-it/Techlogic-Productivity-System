@@ -116,17 +116,19 @@ router.get('/agent-download', (req, res) => {
 // Per-org policy: the company can override the idle threshold; everything else is
 // the global default. The agent applies this on its next /config poll.
 async function policyForDevice(device) {
-  const policy = { ...AGENT_POLICY, collectScreenshots: false, screenshotIntervalSec: 300 };
+  const policy = { ...AGENT_POLICY, collectScreenshots: false, screenshotIntervalSec: 300, workTrackerEnabled: false };
   if (device?.organisationId) {
     const setting = await prisma.monitoringSetting.findUnique({
       where: { organisationId: device.organisationId },
-      select: { idleThresholdSec: true, screenshotsEnabled: true, screenshotIntervalSec: true },
+      select: { idleThresholdSec: true, screenshotsEnabled: true, screenshotIntervalSec: true, workTrackerEnabled: true },
     });
     if (setting?.idleThresholdSec != null) policy.idleThresholdSec = setting.idleThresholdSec;
     // Screenshots require both the company opting in AND R2 actually configured
     // on this deployment — never tell an agent to capture into a void.
     policy.collectScreenshots = !!setting?.screenshotsEnabled && screenshotsConfigured();
     if (setting?.screenshotIntervalSec) policy.screenshotIntervalSec = setting.screenshotIntervalSec;
+    // Work-tracker widget: purely opt-in, no external dependency to gate on.
+    policy.workTrackerEnabled = !!setting?.workTrackerEnabled;
   }
   return policy;
 }
