@@ -118,8 +118,10 @@ internal sealed record OpenSessionDto(string AgentSessionId, string? ClientName,
 // a PC restart mid-task doesn't lose or duplicate it.
 internal sealed class WorkTrackerForm : Form
 {
-    private const int FormWidth = 400;
-    private const int ContentWidth = FormWidth - 40; // form width minus left+right padding (20 each)
+    private const int FormWidth = 460;
+    private const int LeftPad = 20;
+    private const int RightPad = 28; // wider than LeftPad so the ComboBox dropdown arrow isn't flush against the window edge
+    private const int ContentWidth = FormWidth - LeftPad - RightPad;
 
     private static readonly Color HeaderBg = Color.FromArgb(245, 246, 247);
     private static readonly Color BorderGray = Color.FromArgb(224, 224, 224);
@@ -136,12 +138,18 @@ internal sealed class WorkTrackerForm : Form
     private readonly ComboBox _clientBox = new() { DropDownStyle = ComboBoxStyle.DropDown, Width = ContentWidth, Font = new Font("Segoe UI", 9.5f), AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
     private readonly ComboBox _taskBox = new() { DropDownStyle = ComboBoxStyle.DropDown, Width = ContentWidth, Font = new Font("Segoe UI", 9.5f), AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
     private readonly TextBox _notesBox = new() { PlaceholderText = "Notes (optional)", Width = ContentWidth, Font = new Font("Segoe UI", 9.5f) };
-    private readonly Button _startButton = new() { Text = "▶   Start task", Width = ContentWidth, Height = 36, Font = new Font("Segoe UI", 10f, FontStyle.Bold), BackColor = AccentGreen, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand };
+    // AutoSize + MinimumSize (not a guessed pixel Height) so the label can never
+    // get clipped by its own button bounds at higher display scaling — the same
+    // class of bug fixed on the Stop button and the running-row labels below.
+    // MinimumSize.Width pins it at ContentWidth (AutoSize can't shrink under a
+    // MinimumSize floor); MinimumSize.Height is just a floor, so it still grows
+    // taller than 30px if real DPI-rendered text needs more room.
+    private readonly Button _startButton = new() { Text = "▶   Start task", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(ContentWidth, 30), Font = new Font("Segoe UI", 9.5f, FontStyle.Bold), BackColor = AccentGreen, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand };
     private readonly Label _youLabel = new() { AutoSize = true, Font = new Font("Segoe UI", 9f), ForeColor = Color.FromArgb(60, 60, 60) };
     private readonly Label _statusLabel = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(12, 0, 12, 0), Font = new Font("Segoe UI", 8.5f), ForeColor = LabelGray };
-    private readonly FlowLayoutPanel _runningPanel = new() { FlowDirection = FlowDirection.TopDown, AutoScroll = true, Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(20, 4, 20, 16), BackColor = Color.White };
-    private readonly Panel _headerPanel = new() { Dock = DockStyle.Top, Height = 40, BackColor = HeaderBg, Padding = new Padding(20, 0, 20, 0) };
-    private readonly TableLayoutPanel _topPanel = new() { Dock = DockStyle.Top, ColumnCount = 1, AutoSize = true, Padding = new Padding(20, 16, 20, 14) };
+    private readonly FlowLayoutPanel _runningPanel = new() { FlowDirection = FlowDirection.TopDown, AutoScroll = true, Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(LeftPad, 4, RightPad, 16), BackColor = Color.White };
+    private readonly Panel _headerPanel = new() { Dock = DockStyle.Top, Height = 40, BackColor = HeaderBg, Padding = new Padding(LeftPad, 0, RightPad, 0) };
+    private readonly TableLayoutPanel _topPanel = new() { Dock = DockStyle.Top, ColumnCount = 1, AutoSize = true, Padding = new Padding(LeftPad, 16, RightPad, 14) };
     private readonly Panel _statusBar = new() { Dock = DockStyle.Bottom, Height = 28, BackColor = HeaderBg };
     private readonly System.Windows.Forms.Timer _tickTimer = new() { Interval = 1000 };
     private readonly List<RunningRow> _running = new();
@@ -283,34 +291,69 @@ internal sealed class WorkTrackerForm : Form
         _taskBox.Text = ""; _notesBox.Clear(); _clientBox.Text = "";
     }
 
+    // Row content is inset from the panel's own edges "by hand" — Panel.Padding
+    // has no effect on children placed by explicit Location/Size (it only
+    // affects Docked children), so a Padding property on the row panel would be
+    // silently ignored. This RowInset is what actually creates the margin.
+    private static readonly Padding RowInset = new(12, 10, 12, 10);
+
     private void AddRunningRow(string sessionId, string? clientName, string taskName, DateTime startTime)
     {
         var row = new RunningRow(sessionId, clientName, taskName, startTime);
         var initialWidth = Math.Max(220, _runningPanel.ClientSize.Width - _runningPanel.Padding.Horizontal);
-        var panel = new Panel { Width = initialWidth, Height = 60, Margin = new Padding(0, 0, 0, 8), BorderStyle = BorderStyle.FixedSingle, Padding = new Padding(12, 8, 12, 8), BackColor = Color.White };
-        // Anchored (not fixed position): the text stretches to fill whatever
-        // space is left of the Stop button, and Stop stays pinned to the right
-        // edge, so this keeps looking right as the row is resized.
-        var stop = new Button { Text = "Stop", Width = 64, Height = 30, Font = new Font("Segoe UI", 8.5f), Anchor = AnchorStyles.Top | AnchorStyles.Right, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand };
+        var titleFont = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+        var elapsedFont = new Font("Segoe UI", 8.5f);
+
+        // Rows are built dynamically at runtime (not part of the form's initial
+        // layout pass), so their explicit pixel sizes are NOT auto-rescaled for
+        // display DPI the way the static fields above are — only AutoSize (which
+        // measures real rendered text) reflects actual scaling. That's exactly
+        // why a fixed pixel height clipped the top of these labels before: text
+        // rendered taller (at this display's real DPI) than the guessed Height
+        // that was never itself scaled. Measuring real glyph height here, using
+        // the form's own Graphics (same DPI the row will actually render at),
+        // fixes it for any scaling factor instead of guessing another constant.
+        using var g = CreateGraphics();
+        var titleH = TextRenderer.MeasureText(g, "Ag", titleFont, new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding).Height + 4;
+        var elapsedH = TextRenderer.MeasureText(g, "Ag", elapsedFont, new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding).Height + 4;
+        var panelHeight = RowInset.Top + titleH + elapsedH + RowInset.Bottom;
+
+        var panel = new Panel { Width = initialWidth, Height = panelHeight, Margin = new Padding(0, 0, 0, 8), BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White };
+
+        // AutoSize (not a guessed pixel width) so "Stop" can never be clipped
+        // regardless of display scaling/font metrics — that's what caused it to
+        // render as "Sto" before. MinimumSize keeps it from looking too tiny.
+        var stop = new Button
+        {
+            Text = "Stop", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            MinimumSize = new Size(60, 28), Padding = new Padding(10, 2, 10, 2),
+            Font = elapsedFont, Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand,
+        };
         stop.FlatAppearance.BorderColor = BorderGray;
-        stop.Location = new Point(panel.ClientSize.Width - panel.Padding.Right - stop.Width, (panel.ClientSize.Height - stop.Height) / 2);
+        // stop.Width is already resolved at this point (AutoSize controls compute
+        // PreferredSize as soon as Text/Font/Padding are set), so it's safe to
+        // use here for positioning.
+        stop.Location = new Point(panel.ClientSize.Width - RowInset.Right - stop.Width, (panel.ClientSize.Height - stop.Height) / 2);
+
+        var textRight = stop.Location.X - 10;
         var titleLabel = new Label
         {
             AutoSize = false,
-            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+            Font = titleFont,
             ForeColor = Color.FromArgb(30, 30, 30),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-            Location = new Point(0, 0),
-            Size = new Size(stop.Location.X - 10, 20),
+            Location = new Point(RowInset.Left, RowInset.Top),
+            Size = new Size(Math.Max(20, textRight - RowInset.Left), titleH),
         };
         var elapsedLabel = new Label
         {
             AutoSize = false,
-            Font = new Font("Segoe UI", 8.5f),
+            Font = elapsedFont,
             ForeColor = ElapsedGreen,
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-            Location = new Point(0, 21),
-            Size = new Size(stop.Location.X - 10, 18),
+            Location = new Point(RowInset.Left, RowInset.Top + titleH),
+            Size = new Size(Math.Max(20, textRight - RowInset.Left), elapsedH),
         };
         stop.Click += async (_, __) => await StopClicked(row, panel, stop);
         panel.Controls.Add(titleLabel);
