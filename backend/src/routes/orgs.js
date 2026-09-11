@@ -511,25 +511,26 @@ router.put(
 // company key, downloads the agent exe from the server, installs to the user's
 // LocalAppData (no admin), and registers a hidden autostart-at-login launcher.
 // %% escapes to a literal % in the .bat; ^& escapes & inside the echoed VBS.
+// NOTE: this deliberately never touches wscript.exe/.vbs. Many hardened
+// corporate networks block Windows Script Host outright via an Application
+// Control policy (WDAC/AppLocker) — error 800711C7, "An Application Control
+// policy has blocked this file" — which silently kills the old VBS-based
+// hide-the-console-and-autostart trick with no visible failure at all (the
+// install folder never even gets created). The agent exe is WinExe (no
+// console subsystem, see agent-windows/ProductivityAgent.csproj), so it never
+// needed hiding in the first place — only the .bat's own brief setup window
+// did, and that's a cosmetic few seconds, not worth the fragility. Autostart
+// uses a plain HKCU Run registry value instead of a Startup-folder script.
 function buildInstallerBat({ serverUrl, key, exeUrl }) {
-  const vbs = '%STARTUP%\\TechlogicProductivity.vbs';
+  const runKey = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
   const lines = [
     '@echo off',
-    'rem ===== Techlogic Productivity System - SILENT agent installer =====',
-    'rem First launch flashes briefly, relaunches itself hidden, then installs in',
-    'rem the background with no window and no prompts.',
-    'if /i "%~1"=="/silent" goto install',
-    `> "%TEMP%\\tps-install.vbs" echo CreateObject("WScript.Shell").Run "cmd /c ""%~f0"" /silent", 0, False`,
-    `wscript "%TEMP%\\tps-install.vbs"`,
-    'exit /b',
-    '',
-    ':install',
+    'rem ===== Techlogic Productivity System - agent installer =====',
     'setlocal',
     `set "SERVER=${serverUrl}"`,
     `set "KEY=${key}"`,
     `set "EXEURL=${exeUrl}"`,
     'set "INSTALL_DIR=%LOCALAPPDATA%\\TechlogicProductivity"',
-    'set "STARTUP=%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"',
     '',
     'taskkill /F /IM ProductivityAgent.exe >nul 2>&1',
     'if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"',
@@ -544,37 +545,39 @@ function buildInstallerBat({ serverUrl, key, exeUrl }) {
     `where curl.exe >nul 2>&1 && curl.exe -L -f -s -S -o "%INSTALL_DIR%\\ProductivityAgent.exe" "%EXEURL%" || powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; try { Invoke-WebRequest -Uri '%EXEURL%' -OutFile '%INSTALL_DIR%\\ProductivityAgent.exe' -UseBasicParsing } catch { Write-Host $_.Exception.Message; exit 1 }"`,
     'if not exist "%INSTALL_DIR%\\ProductivityAgent.exe" exit /b 1',
     '',
-    `> "${vbs}" echo Set W = CreateObject("WScript.Shell")`,
-    `>> "${vbs}" echo exe = W.ExpandEnvironmentStrings("%%LOCALAPPDATA%%\\TechlogicProductivity\\ProductivityAgent.exe")`,
-    `>> "${vbs}" echo W.Run Chr(34) ^& exe ^& Chr(34) ^& " --server %SERVER% --key %KEY%", 0, False`,
+    'rem Clean up a leftover Startup-folder launcher from an older install.',
+    'del "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\TechlogicProductivity.vbs" >nul 2>&1',
     '',
-    `wscript "${vbs}"`,
-    'del "%TEMP%\\tps-install.vbs" >nul 2>&1',
+    'rem Autostart on login — a plain Run key, no scripting host involved.',
+    `reg add "${runKey}" /v TechlogicProductivity /t REG_SZ /d "\\"%INSTALL_DIR%\\ProductivityAgent.exe\\" --server %SERVER% --key %KEY%" /f >nul`,
+    '',
+    'rem Start it now too, so monitoring begins immediately rather than at next login.',
+    'start "" "%INSTALL_DIR%\\ProductivityAgent.exe" --server %SERVER% --key %KEY%',
     'endlocal',
   ];
   return lines.join('\r\n') + '\r\n';
 }
 
-// Silent per-user uninstaller — stop the agent, retire it on the server (so the
-// machine drops out of the portal), remove the autostart, delete the install folder.
+// Uninstaller — stop the agent, retire it on the server (so the machine drops
+// out of the portal), remove the autostart, delete the install folder. See
+// buildInstallerBat's note: no wscript/.vbs dependency here either.
 function buildUninstallerBat({ serverUrl }) {
   const stateFile = '%LOCALAPPDATA%\\TechlogicProductivity\\agent.state.json';
+  const runKey = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
   const lines = [
     '@echo off',
-    'rem ===== Techlogic Productivity System - SILENT uninstaller (per user) =====',
-    'if /i "%~1"=="/silent" goto uninstall',
-    `> "%TEMP%\\tps-uninstall.vbs" echo CreateObject("WScript.Shell").Run "cmd /c ""%~f0"" /silent", 0, False`,
-    `wscript "%TEMP%\\tps-uninstall.vbs"`,
-    'exit /b',
-    '',
-    ':uninstall',
+    'rem ===== Techlogic Productivity System - uninstaller (per user) =====',
     'setlocal',
     'taskkill /F /IM ProductivityAgent.exe >nul 2>&1',
+    // Brief pause so Windows fully releases the just-killed exe's own file
+    // handle before rmdir runs — without it, rmdir can silently leave an
+    // empty folder behind (the exe file itself is still momentarily locked).
+    'timeout /t 1 /nobreak >nul 2>&1',
     'rem Best-effort: tell the server to retire this device (uses the stored token).',
     `powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $s = Get-Content '${stateFile}' -Raw | ConvertFrom-Json; if ($s.AgentToken) { Invoke-RestMethod -Uri '${serverUrl}/api/monitoring/retire' -Method Post -Headers @{ Authorization = 'Bearer ' + $s.AgentToken } -TimeoutSec 20 | Out-Null } } catch {}"`,
+    `reg delete "${runKey}" /v TechlogicProductivity /f >nul 2>&1`,
     'del "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\TechlogicProductivity.vbs" >nul 2>&1',
     'rmdir /S /Q "%LOCALAPPDATA%\\TechlogicProductivity" >nul 2>&1',
-    'del "%TEMP%\\tps-uninstall.vbs" >nul 2>&1',
     'endlocal',
   ];
   return lines.join('\r\n') + '\r\n';
