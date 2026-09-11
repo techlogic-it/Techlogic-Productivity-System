@@ -118,16 +118,19 @@ internal sealed record OpenSessionDto(string AgentSessionId, string? ClientName,
 // a PC restart mid-task doesn't lose or duplicate it.
 internal sealed class WorkTrackerForm : Form
 {
+    private const int FormWidth = 400;
+    private const int ContentWidth = FormWidth - 40; // form width minus left+right padding (20 each)
+
     private readonly WorkClient _client;
     private readonly Identity _id;
-    private readonly ComboBox _clientBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 296 };
+    private readonly ComboBox _clientBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = ContentWidth, Font = new Font("Segoe UI", 9.5f) };
     // DropDown (not DropDownList): pick a predefined task from the company's
     // list, or just type a one-off name — the list is suggestions, not a hard
     // constraint (matches how WorkSession.taskName is always free text).
-    private readonly ComboBox _taskBox = new() { DropDownStyle = ComboBoxStyle.DropDown, Width = 296 };
-    private readonly TextBox _notesBox = new() { PlaceholderText = "Notes (optional)", Width = 296 };
-    private readonly Button _startButton = new() { Text = "Start task", Width = 296, Height = 30 };
-    private readonly FlowLayoutPanel _runningPanel = new() { FlowDirection = FlowDirection.TopDown, AutoScroll = true, Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(10, 0, 10, 10) };
+    private readonly ComboBox _taskBox = new() { DropDownStyle = ComboBoxStyle.DropDown, Width = ContentWidth, Font = new Font("Segoe UI", 9.5f) };
+    private readonly TextBox _notesBox = new() { PlaceholderText = "Notes (optional)", Width = ContentWidth, Font = new Font("Segoe UI", 9.5f) };
+    private readonly Button _startButton = new() { Text = "Start task", Width = ContentWidth, Height = 32, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
+    private readonly FlowLayoutPanel _runningPanel = new() { FlowDirection = FlowDirection.TopDown, AutoScroll = true, Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(20, 4, 20, 16) };
     private readonly System.Windows.Forms.Timer _tickTimer = new() { Interval = 1000 };
     private readonly List<RunningRow> _running = new();
     private List<ClientDto> _clients = new();
@@ -137,13 +140,14 @@ internal sealed class WorkTrackerForm : Form
         _client = new WorkClient(cfg, state);
         _id = id;
 
-        Text = "Techlogic Work Tracker";
+        Text = "Work Tracker";
+        Font = new Font("Segoe UI", 9f);
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
         StartPosition = FormStartPosition.Manual;
         TopMost = true;
         ShowInTaskbar = false;
-        Width = 340;
-        Height = 440;
+        Width = FormWidth;
+        Height = 520;
         var wa = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
         Location = new Point(wa.Right - Width - 12, wa.Bottom - Height - 12);
         BackColor = Color.White;
@@ -152,6 +156,11 @@ internal sealed class WorkTrackerForm : Form
         _tickTimer.Tick += (_, __) => RefreshElapsed();
         _tickTimer.Start();
         Load += async (_, __) => await Initialise();
+        // Keep every running row exactly as wide as the panel's visible area,
+        // whether or not the vertical scrollbar is currently showing — a fixed
+        // pixel width here is what caused rows (and their Stop button) to spill
+        // outside the window, forcing an ugly horizontal scrollbar.
+        _runningPanel.Resize += (_, __) => ResizeRunningRows();
         // Never actually let the user close the widget — it's meant to stay
         // running alongside the background tracker. Minimise instead.
         FormClosing += (_, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
@@ -159,21 +168,27 @@ internal sealed class WorkTrackerForm : Form
 
     private void BuildLayout()
     {
-        var top = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 1, AutoSize = true, Padding = new Padding(10) };
-        top.Controls.Add(new Label { Text = "Start a new task", Font = new Font(Font, FontStyle.Bold), AutoSize = true, Margin = new Padding(0, 0, 0, 6) });
+        var top = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 1, AutoSize = true, Padding = new Padding(20, 16, 20, 12) };
+        top.Controls.Add(new Label { Text = "Start a new task", Font = new Font("Segoe UI", 10f, FontStyle.Bold), AutoSize = true, Margin = new Padding(0, 0, 0, 10) });
         top.Controls.Add(_clientBox);
-        top.Controls.Add(new Panel { Height = 6 });
-        top.Controls.Add(new Label { Text = "Task (pick one or type your own)", AutoSize = true, ForeColor = Color.Gray, Font = new Font(Font.FontFamily, 7.5f), Margin = new Padding(0, 0, 0, 2) });
+        top.Controls.Add(new Panel { Height = 10 });
+        top.Controls.Add(new Label { Text = "TASK — pick one or type your own", AutoSize = true, ForeColor = Color.Gray, Font = new Font("Segoe UI", 7.5f), Margin = new Padding(2, 0, 0, 3) });
         top.Controls.Add(_taskBox);
-        top.Controls.Add(new Panel { Height = 4 });
+        top.Controls.Add(new Panel { Height = 10 });
         top.Controls.Add(_notesBox);
-        top.Controls.Add(new Panel { Height = 6 });
+        top.Controls.Add(new Panel { Height = 14 });
         top.Controls.Add(_startButton);
-        top.Controls.Add(new Label { Text = "Running", Font = new Font(Font, FontStyle.Bold), AutoSize = true, Margin = new Padding(0, 10, 0, 0) });
+        top.Controls.Add(new Label { Text = "RUNNING", Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = Color.DimGray, AutoSize = true, Margin = new Padding(2, 18, 0, 4) });
         _startButton.Click += async (_, __) => await StartClicked();
 
         Controls.Add(_runningPanel);
         Controls.Add(top);
+    }
+
+    private void ResizeRunningRows()
+    {
+        var w = Math.Max(220, _runningPanel.ClientSize.Width - _runningPanel.Padding.Horizontal);
+        foreach (Control c in _runningPanel.Controls) c.Width = w;
     }
 
     private async Task Initialise()
@@ -217,9 +232,21 @@ internal sealed class WorkTrackerForm : Form
     private void AddRunningRow(string sessionId, string? clientName, string taskName, DateTime startTime)
     {
         var row = new RunningRow(sessionId, clientName, taskName, startTime);
-        var panel = new Panel { Width = 300, Height = 54, Margin = new Padding(0, 0, 0, 6), BorderStyle = BorderStyle.FixedSingle };
-        var label = new Label { AutoSize = false, Location = new Point(6, 6), Width = 220, Height = 42 };
-        var stop = new Button { Text = "Stop", Width = 60, Height = 30, Location = new Point(228, 10) };
+        var initialWidth = Math.Max(220, _runningPanel.ClientSize.Width - _runningPanel.Padding.Horizontal);
+        var panel = new Panel { Width = initialWidth, Height = 58, Margin = new Padding(0, 0, 0, 8), BorderStyle = BorderStyle.FixedSingle, Padding = new Padding(10, 8, 10, 8) };
+        // Anchored (not fixed position): the label stretches to fill whatever
+        // space is left of the Stop button, and Stop stays pinned to the right
+        // edge, so this keeps looking right as the row is resized.
+        var stop = new Button { Text = "Stop", Width = 64, Height = 30, Font = new Font("Segoe UI", 8.5f), Anchor = AnchorStyles.Top | AnchorStyles.Right };
+        stop.Location = new Point(panel.ClientSize.Width - panel.Padding.Right - stop.Width, (panel.ClientSize.Height - stop.Height) / 2);
+        var label = new Label
+        {
+            AutoSize = false,
+            Font = new Font("Segoe UI", 9f),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            Location = new Point(0, 2),
+            Size = new Size(stop.Location.X - 10, panel.ClientSize.Height - 4),
+        };
         stop.Click += async (_, __) => await StopClicked(row, panel, stop);
         panel.Controls.Add(label);
         panel.Controls.Add(stop);
