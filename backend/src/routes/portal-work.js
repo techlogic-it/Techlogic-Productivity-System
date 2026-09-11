@@ -86,6 +86,89 @@ router.patch('/clients/:id', requirePortalRole('ORG_ADMIN'), asyncHandler(async 
   }
 }));
 
+// POST /clients/import — bulk-add clients from a CSV the browser already
+// parsed into plain names (simplest: no server-side CSV/multipart parsing
+// needed). Creates whatever's new, quietly skips names that already exist or
+// are blank, and reactivates a matching client that had been deactivated.
+router.post('/clients/import', requirePortalRole('ORG_ADMIN'), asyncHandler(async (req, res) => {
+  const orgId = targetOrgId(req);
+  if (!orgId) return res.status(400).json({ error: 'organisationId is required' });
+  const names = Array.isArray(req.body?.names) ? req.body.names : [];
+  const clean = [...new Set(names.map((n) => String(n || '').trim()).filter(Boolean))];
+  if (clean.length === 0) return res.status(400).json({ error: 'No client names found in the file' });
+  if (clean.length > 2000) return res.status(400).json({ error: 'Too many rows (max 2000 at a time)' });
+
+  const existing = await prisma.client.findMany({
+    where: { organisationId: orgId, name: { in: clean } },
+    select: { id: true, name: true, isActive: true },
+  });
+  const existingByName = new Map(existing.map((c) => [c.name, c]));
+
+  const toCreate = clean.filter((n) => !existingByName.has(n));
+  const toReactivate = existing.filter((c) => !c.isActive);
+
+  const [created] = await Promise.all([
+    toCreate.length ? prisma.client.createMany({ data: toCreate.map((name) => ({ organisationId: orgId, name })) }) : { count: 0 },
+    toReactivate.length ? prisma.client.updateMany({ where: { id: { in: toReactivate.map((c) => c.id) } }, data: { isActive: true } }) : null,
+  ]);
+
+  res.json({
+    created: created.count,
+    reactivated: toReactivate.length,
+    alreadyActive: clean.length - toCreate.length - toReactivate.length,
+    total: clean.length,
+  });
+}));
+
+// ── Task types (picklist for the widget's task field) ───────────────────
+
+router.get('/tasks', asyncHandler(async (req, res) => {
+  const orgId = targetOrgId(req);
+  if (!orgId) return res.json([]);
+  const tasks = await prisma.taskType.findMany({
+    where: { organisationId: orgId, ...(req.query.activeOnly === 'true' ? { isActive: true } : {}) },
+    orderBy: { name: 'asc' },
+  });
+  res.json(tasks);
+}));
+
+router.post('/tasks', requirePortalRole('ORG_ADMIN'), asyncHandler(async (req, res) => {
+  const orgId = targetOrgId(req);
+  if (!orgId) return res.status(400).json({ error: 'organisationId is required' });
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Task name is required' });
+  try {
+    const row = await prisma.taskType.create({ data: { organisationId: orgId, name } });
+    res.status(201).json(row);
+  } catch (e) {
+    if (e.code === 'P2002') return res.status(409).json({ error: 'A task with that name already exists' });
+    throw e;
+  }
+}));
+
+router.patch('/tasks/:id', requirePortalRole('ORG_ADMIN'), asyncHandler(async (req, res) => {
+  const orgId = targetOrgId(req);
+  const task = await prisma.taskType.findFirst({ where: { id: req.params.id, organisationId: orgId } });
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+
+  const data = {};
+  if (req.body?.name !== undefined) {
+    const name = String(req.body.name).trim();
+    if (!name) return res.status(400).json({ error: 'Task name cannot be blank' });
+    data.name = name;
+  }
+  if (req.body?.isActive !== undefined) data.isActive = !!req.body.isActive;
+  if (Object.keys(data).length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+  try {
+    const row = await prisma.taskType.update({ where: { id: task.id }, data });
+    res.json(row);
+  } catch (e) {
+    if (e.code === 'P2002') return res.status(409).json({ error: 'A task with that name already exists' });
+    throw e;
+  }
+}));
+
 // ── Time-by-client report ───────────────────────────────────────────────
 // Raw session rows for a date range — the report page groups/sums client-side,
 // same approach as the existing Timeline / Apps & sites breakdowns.

@@ -61,6 +61,7 @@ model Organisation {
   providerAssignments ProviderAssignment[]
   screenshots    MonitoredScreenshot[]
   clients        Client[]
+  taskTypes      TaskType[]
   workSessions   WorkSession[]
 }
 
@@ -276,6 +277,22 @@ model Client {
   updatedAt      DateTime      @updatedAt
 
   workSessions   WorkSession[]
+
+  @@unique([organisationId, name])
+}
+
+// A predefined task name, managed per-company (Time Tracking page), offered
+// as suggestions in the work-tracker widget's task picker. WorkSession.taskName
+// stays free text — this is a picklist to speed entry and keep naming
+// consistent, not a hard constraint (ad-hoc task names are still allowed).
+model TaskType {
+  id             String       @id @default(uuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  name           String
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   @@unique([organisationId, name])
 }

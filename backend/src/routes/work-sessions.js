@@ -23,6 +23,19 @@ router.get('/clients', authenticateAgent, asyncHandler(async (req, res) => {
   res.json(clients);
 }));
 
+// GET /api/monitoring/tasks — this company's predefined task names, offered as
+// suggestions in the widget's task picker (still free-text underneath).
+router.get('/tasks', authenticateAgent, asyncHandler(async (req, res) => {
+  const device = req.device;
+  if (!device.organisationId) return res.json([]);
+  const tasks = await prisma.taskType.findMany({
+    where: { organisationId: device.organisationId, isActive: true },
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true },
+  });
+  res.json(tasks);
+}));
+
 // GET /api/monitoring/work/open?localAccountKey= — this employee's still-open
 // sessions, so the widget can restore its running timers after the PC
 // restarts instead of losing track of (or duplicating) them.

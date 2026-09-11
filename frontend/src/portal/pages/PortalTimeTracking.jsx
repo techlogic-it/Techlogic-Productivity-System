@@ -20,6 +20,35 @@ const PRESETS = [['today', 'Today'], ['7days', '7 days'], ['week', 'This week'],
 
 const fmtDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
+// First field of a CSV line, quote-aware — a plain split(',')[0] mangles a
+// quoted name that itself contains a comma (e.g. "Smith, Jones & Co").
+function firstCsvField(line) {
+  if (line[0] === '"') {
+    let out = '';
+    for (let i = 1; i < line.length; i++) {
+      if (line[i] === '"') {
+        if (line[i + 1] === '"') { out += '"'; i++; continue; }
+        break; // closing quote
+      }
+      out += line[i];
+    }
+    return out.trim();
+  }
+  const idx = line.indexOf(',');
+  return (idx === -1 ? line : line.slice(0, idx)).trim();
+}
+
+// Extract names from a CSV file's text: first column of each non-blank line.
+// Skips a header row if it looks like one (e.g. "Name" / "Client" / "Company")
+// rather than an actual client name.
+const HEADER_WORDS = new Set(['name', 'client', 'client name', 'company', 'company name', 'customer', 'customer name', 'task', 'task name']);
+function namesFromCsv(text) {
+  const lines = text.split(/\r\n|\n|\r/).map((l) => l.trim()).filter(Boolean);
+  const names = lines.map(firstCsvField).filter(Boolean);
+  if (names.length && HEADER_WORDS.has(names[0].toLowerCase())) names.shift();
+  return names;
+}
+
 function Card({ title, subtitle, children }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
@@ -53,13 +82,17 @@ export default function PortalTimeTracking() {
     setFromDate(fmtDateInput(f)); setToDate(fmtDateInput(t));
   };
 
+  const [tasks, setTasks] = useState([]);
   const loadClients = useCallback(() => {
     portalApi.get('/monitoring/clients').then((r) => setClients(r.data || [])).catch(() => {});
   }, []);
+  const loadTasks = useCallback(() => {
+    portalApi.get('/monitoring/tasks').then((r) => setTasks(r.data || [])).catch(() => {});
+  }, []);
   useEffect(() => {
-    loadClients();
+    loadClients(); loadTasks();
     portalApi.get('/monitoring/employees?activeOnly=true').then((r) => setEmployees(r.data || [])).catch(() => {});
-  }, [loadClients]);
+  }, [loadClients, loadTasks]);
 
   useEffect(() => {
     setLoading(true); setError('');
@@ -106,6 +139,51 @@ export default function PortalTimeTracking() {
     if (!name || !name.trim() || name.trim() === c.name) return;
     try { await portalApi.patch(`/monitoring/clients/${c.id}`, { name: name.trim() }); loadClients(); }
     catch (e) { alert(e.response?.data?.error || 'Could not rename client'); }
+  };
+
+  const [importBusy, setImportBusy] = useState(false);
+  const [importResult, setImportResult] = useState('');
+  const importClientsCsv = async (file) => {
+    if (!file) return;
+    setImportBusy(true); setImportResult(''); setClientError('');
+    try {
+      const text = await file.text();
+      const names = namesFromCsv(text);
+      if (names.length === 0) { setClientError('No client names found in that file.'); return; }
+      const { data } = await portalApi.post('/monitoring/clients/import', { names });
+      const bits = [];
+      if (data.created) bits.push(`${data.created} added`);
+      if (data.reactivated) bits.push(`${data.reactivated} reactivated`);
+      if (data.alreadyActive) bits.push(`${data.alreadyActive} already there`);
+      setImportResult(`${data.total} row${data.total === 1 ? '' : 's'}: ${bits.join(', ') || 'nothing new'}.`);
+      loadClients();
+    } catch (e) {
+      setClientError(e.response?.data?.error || 'Could not import that file.');
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  // ── Manage tasks ──
+  const [newTaskName, setNewTaskName] = useState('');
+  const [taskError, setTaskError] = useState('');
+  const addTask = async () => {
+    if (!newTaskName.trim()) return;
+    setTaskError('');
+    try {
+      await portalApi.post('/monitoring/tasks', { name: newTaskName.trim() });
+      setNewTaskName(''); loadTasks();
+    } catch (e) { setTaskError(e.response?.data?.error || 'Could not add task'); }
+  };
+  const toggleTaskActive = async (t) => {
+    await portalApi.patch(`/monitoring/tasks/${t.id}`, { isActive: !t.isActive });
+    loadTasks();
+  };
+  const renameTask = async (t) => {
+    const name = window.prompt('Task name', t.name);
+    if (!name || !name.trim() || name.trim() === t.name) return;
+    try { await portalApi.patch(`/monitoring/tasks/${t.id}`, { name: name.trim() }); loadTasks(); }
+    catch (e) { alert(e.response?.data?.error || 'Could not rename task'); }
   };
 
   return (
@@ -217,13 +295,47 @@ export default function PortalTimeTracking() {
             ))}
             {clients.length === 0 && <span className="text-sm text-gray-400">No clients yet.</span>}
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
             <input placeholder="New client name" value={newClientName} onChange={(e) => setNewClientName(e.target.value)}
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm flex-1 max-w-xs" />
             <button onClick={addClient} disabled={!newClientName.trim()} className="rounded-lg bg-teal-600 disabled:opacity-50 text-white px-3 py-1.5 text-sm">Add client</button>
+            <span className="text-gray-300">|</span>
+            <label className={`rounded-lg border border-gray-300 px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 ${importBusy ? 'opacity-50 pointer-events-none' : ''}`}>
+              {importBusy ? 'Importing…' : 'Import CSV'}
+              <input type="file" accept=".csv,text/csv" className="hidden"
+                onChange={(e) => { importClientsCsv(e.target.files?.[0]); e.target.value = ''; }} />
+            </label>
             {clientError && <span className="text-red-600 text-xs">{clientError}</span>}
+            {importResult && !clientError && <span className="text-teal-700 text-xs">{importResult}</span>}
           </div>
-          <p className="text-xs text-gray-400 mt-2">Deactivating a client hides it from the widget's picker for new tasks but keeps past tracked time intact.</p>
+          <p className="text-xs text-gray-400 mt-2">
+            Deactivating a client hides it from the widget's picker for new tasks but keeps past tracked time intact.
+            CSV import reads the first column of each row as the client name (a header row like "Name" is skipped automatically).
+          </p>
+        </Card>
+      )}
+
+      {canManageClients && (
+        <Card title="Tasks" subtitle="Predefined task names offered as suggestions in the widget — staff can still type a custom one.">
+          <div className="flex flex-wrap gap-2 mb-3">
+            {tasks.map((t) => (
+              <span key={t.id} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${t.isActive ? 'border-gray-200 bg-white' : 'border-gray-200 bg-gray-50 opacity-60'}`}>
+                <span className="font-medium text-gray-700">{t.name}</span>
+                {!t.isActive && <span className="text-gray-400">inactive</span>}
+                <button onClick={() => renameTask(t)} className="text-gray-400 hover:text-teal-600" title="Rename">✎</button>
+                <button onClick={() => toggleTaskActive(t)} className="text-gray-400 hover:text-red-600" title={t.isActive ? 'Deactivate' : 'Reactivate'}>
+                  {t.isActive ? '✕' : '↺'}
+                </button>
+              </span>
+            ))}
+            {tasks.length === 0 && <span className="text-sm text-gray-400">No predefined tasks yet.</span>}
+          </div>
+          <div className="flex gap-2 items-center">
+            <input placeholder="New task name" value={newTaskName} onChange={(e) => setNewTaskName(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm flex-1 max-w-xs" />
+            <button onClick={addTask} disabled={!newTaskName.trim()} className="rounded-lg bg-teal-600 disabled:opacity-50 text-white px-3 py-1.5 text-sm">Add task</button>
+            {taskError && <span className="text-red-600 text-xs">{taskError}</span>}
+          </div>
         </Card>
       )}
     </div>

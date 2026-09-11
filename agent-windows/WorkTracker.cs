@@ -36,6 +36,24 @@ internal sealed class WorkClient
         catch { return new List<ClientDto>(); }
     }
 
+    public async Task<List<string>> GetTasks()
+    {
+        try
+        {
+            using var res = await Http.SendAsync(Req(HttpMethod.Get, "/api/monitoring/tasks"));
+            if (!res.IsSuccessStatusCode) return new List<string>();
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var list = new List<string>();
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                var name = el.GetProperty("name").GetString();
+                if (!string.IsNullOrEmpty(name)) list.Add(name);
+            }
+            return list;
+        }
+        catch { return new List<string>(); }
+    }
+
     public async Task<List<OpenSessionDto>> GetOpenSessions(string localAccountKey)
     {
         try
@@ -103,7 +121,10 @@ internal sealed class WorkTrackerForm : Form
     private readonly WorkClient _client;
     private readonly Identity _id;
     private readonly ComboBox _clientBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 296 };
-    private readonly TextBox _taskBox = new() { PlaceholderText = "Task (e.g. VAT Return)", Width = 296 };
+    // DropDown (not DropDownList): pick a predefined task from the company's
+    // list, or just type a one-off name — the list is suggestions, not a hard
+    // constraint (matches how WorkSession.taskName is always free text).
+    private readonly ComboBox _taskBox = new() { DropDownStyle = ComboBoxStyle.DropDown, Width = 296 };
     private readonly TextBox _notesBox = new() { PlaceholderText = "Notes (optional)", Width = 296 };
     private readonly Button _startButton = new() { Text = "Start task", Width = 296, Height = 30 };
     private readonly FlowLayoutPanel _runningPanel = new() { FlowDirection = FlowDirection.TopDown, AutoScroll = true, Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(10, 0, 10, 10) };
@@ -141,7 +162,8 @@ internal sealed class WorkTrackerForm : Form
         var top = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 1, AutoSize = true, Padding = new Padding(10) };
         top.Controls.Add(new Label { Text = "Start a new task", Font = new Font(Font, FontStyle.Bold), AutoSize = true, Margin = new Padding(0, 0, 0, 6) });
         top.Controls.Add(_clientBox);
-        top.Controls.Add(new Panel { Height = 4 });
+        top.Controls.Add(new Panel { Height = 6 });
+        top.Controls.Add(new Label { Text = "Task (pick one or type your own)", AutoSize = true, ForeColor = Color.Gray, Font = new Font(Font.FontFamily, 7.5f), Margin = new Padding(0, 0, 0, 2) });
         top.Controls.Add(_taskBox);
         top.Controls.Add(new Panel { Height = 4 });
         top.Controls.Add(_notesBox);
@@ -161,6 +183,9 @@ internal sealed class WorkTrackerForm : Form
         _clientBox.Items.Add("(no client)");
         foreach (var c in _clients) _clientBox.Items.Add(c.Name);
         _clientBox.SelectedIndex = 0;
+
+        _taskBox.Items.Clear();
+        foreach (var t in await _client.GetTasks()) _taskBox.Items.Add(t);
 
         foreach (var s in await _client.GetOpenSessions(_id.LocalAccountKey))
             AddRunningRow(s.AgentSessionId, s.ClientName, s.TaskName, s.StartTime);
@@ -186,7 +211,7 @@ internal sealed class WorkTrackerForm : Form
         if (!ok) { MessageBox.Show(this, "Couldn't start the task — check your connection.", "Work Tracker"); return; }
 
         AddRunningRow(sessionId, clientName, task, DateTime.UtcNow);
-        _taskBox.Clear(); _notesBox.Clear(); _clientBox.SelectedIndex = 0;
+        _taskBox.Text = ""; _notesBox.Clear(); _clientBox.SelectedIndex = 0;
     }
 
     private void AddRunningRow(string sessionId, string? clientName, string taskName, DateTime startTime)
