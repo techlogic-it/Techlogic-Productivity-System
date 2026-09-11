@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import portalApi from '../portalApi';
 import { usePortalAuth, isProvider as isProviderRole } from '../PortalAuthContext';
 
@@ -14,11 +14,18 @@ function Section({ title, children, action }) {
   );
 }
 
-// One-time secret reveal (enrolment key / claim code / invite link).
+// One-time secret reveal (enrolment key / claim code / invite link). Always
+// renders at the top of the page, but the action that produces it can be
+// triggered from a section far down (e.g. Company logins) — scroll it into
+// view whenever a new secret appears, or it just looks like nothing happened.
 function Reveal({ secret, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (secret) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [secret]);
   if (!secret) return null;
   return (
-    <div className="mb-4 rounded-lg bg-amber-50 border border-amber-300 px-3 py-2 flex items-center justify-between">
+    <div ref={ref} className="mb-4 rounded-lg bg-amber-50 border border-amber-300 px-3 py-2 flex items-center justify-between">
       <div>
         <div className="text-xs text-amber-700 font-medium">{secret.label} — copy now, shown once</div>
         <code className="text-sm font-mono text-amber-900 break-all">{secret.value}</code>
@@ -195,9 +202,13 @@ export default function PortalAdmin() {
     }
   };
   const resendInvite = async (u) => {
-    const { data } = await portalApi.post(`/orgs/organisations/${orgId}/users/${u.id}/invite`);
-    const link = `${window.location.origin}/portal/accept-invite?token=${data.inviteToken}`;
-    setSecret({ label: `Invite link for ${u.email} — send it so they set a password`, value: link });
+    try {
+      const { data } = await portalApi.post(`/orgs/organisations/${orgId}/users/${u.id}/invite`);
+      const link = `${window.location.origin}/portal/accept-invite?token=${data.inviteToken}`;
+      setSecret({ label: `Invite link for ${u.email} — send it so they set a password`, value: link });
+    } catch (e) {
+      alert(e.response?.data?.error || 'Could not generate a link for this user.');
+    }
   };
   const startEditDept = (g) => {
     const mgr = users.find((u) => u.role === 'GROUP_ADMIN' && u.groupId === g.id);
