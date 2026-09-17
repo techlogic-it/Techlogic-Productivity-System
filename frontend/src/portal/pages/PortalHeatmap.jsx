@@ -147,6 +147,17 @@ export default function PortalHeatmap() {
       .finally(() => setLoading(false));
   }, [mode, targetId, fromDate, toDate, isProvider, companyId]);
 
+  // Downloading as PDF is really "print the page" (window.print()), and the
+  // browser's print header shows document.title — override the generic app
+  // title so a printed/PDF'd report is headed with the actual company (and
+  // employee/team) it's for, not "Techlogic Productivity System".
+  const companyName = isProvider ? companies.find((c) => c.id === companyId)?.name : org?.name;
+  useEffect(() => {
+    if (!companyName || !data) return;
+    const who = mode === 'employee' ? data.employee?.displayName : groups.find((g) => g.id === groupId)?.name;
+    document.title = who ? `${companyName} — ${who}` : `${companyName} — Heatmap`;
+  }, [companyName, data, mode, groups, groupId]);
+
   return (
     <div className="max-w-5xl">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2 print:hidden">

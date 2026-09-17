@@ -32,14 +32,19 @@ function Card({ title, subtitle, children, className = '' }) {
   );
 }
 
+const fmtLate = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`);
+const fmtDay = (s) => new Date(`${s}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+
 export default function PortalExecutive() {
   const navigate = useNavigate();
   const { user, org } = usePortalAuth();
   const isProvider = isProviderRole(user.role);
 
+  const [mode, setMode] = useState('company'); // 'company' | 'employee'
   const [companyId, setCompanyId] = useState('');
   const [companies, setCompanies] = useState([]);
   const reportOrgId = isProvider ? companyId : org?.id;
+  const [employeeId, setEmployeeId] = useState('');
 
   const [preset, setPreset] = useState('month');
   const [[f0, t0]] = useState(rangeFor('month'));
@@ -49,12 +54,15 @@ export default function PortalExecutive() {
   const [summary, setSummary] = useState({ total: {}, employees: [], days: [] });
   const [lateRows, setLateRows] = useState([]);
   const [topApps, setTopApps] = useState([]);
-  const [employees, setEmployees] = useState([]); // for department names
+  const [employees, setEmployees] = useState([]); // for department names + the employee picker
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isProvider) portalApi.get('/orgs/organisations').then((r) => setCompanies(r.data || [])).catch(() => {});
   }, [isProvider]);
+
+  // Reset the employee pick when switching mode/company.
+  useEffect(() => { setEmployeeId(''); }, [mode, companyId]);
 
   const applyPreset = (p) => {
     setPreset(p);
@@ -63,25 +71,46 @@ export default function PortalExecutive() {
     setFromDate(fmtDateInput(a)); setToDate(fmtDateInput(b));
   };
 
+  // Fetched independently of employeeId — it's what POPULATES the employee
+  // picker in employee mode, so it can't wait on an employee already being picked.
+  useEffect(() => {
+    if (!reportOrgId) { setEmployees([]); return; }
+    portalApi.get('/monitoring/employees?activeOnly=true')
+      .then((r) => setEmployees(isProvider ? (r.data || []).filter((emp) => emp.organisationId === reportOrgId) : (r.data || [])))
+      .catch(() => setEmployees([]));
+  }, [reportOrgId, isProvider]);
+
   useEffect(() => {
     if (!reportOrgId) return;
-    const q = new URLSearchParams({ fromDate, toDate, organisationId: reportOrgId });
+    if (mode === 'employee' && !employeeId) { setSummary({ total: {}, employees: [], days: [] }); setLateRows([]); setTopApps([]); return; }
+    const base = { fromDate, toDate, organisationId: reportOrgId };
+    const scoped = mode === 'employee' ? { ...base, employeeId } : base;
     setLoading(true);
     Promise.all([
-      portalApi.get(`/monitoring/summary?${q.toString()}`).then((r) => r.data),
-      portalApi.get(`/monitoring/late-report?${q.toString()}`).then((r) => r.data),
-      portalApi.get(`/monitoring/top-apps?${q.toString()}`).then((r) => r.data),
-      portalApi.get('/monitoring/employees?activeOnly=true').then((r) => r.data),
-    ]).then(([s, l, a, e]) => {
+      portalApi.get(`/monitoring/summary?${new URLSearchParams(scoped).toString()}`).then((r) => r.data),
+      portalApi.get(`/monitoring/late-report?${new URLSearchParams(base).toString()}`).then((r) => r.data), // no employeeId filter — pick the one row client-side
+      portalApi.get(`/monitoring/top-apps?${new URLSearchParams(scoped).toString()}`).then((r) => r.data),
+    ]).then(([s, l, a]) => {
       setSummary(s || { total: {}, employees: [], days: [] });
       setLateRows(l?.rows || []);
       setTopApps((a?.apps || []).slice(0, 8));
-      setEmployees(isProvider ? (e || []).filter((emp) => emp.organisationId === reportOrgId) : (e || []));
     }).finally(() => setLoading(false));
-  }, [reportOrgId, fromDate, toDate, isProvider]);
+  }, [reportOrgId, fromDate, toDate, mode, employeeId]);
 
   const t = summary.total || {};
   const tracked = (t.activeSec || 0) + (t.idleSec || 0);
+  const employeeName = employees.find((e) => e.id === employeeId)?.displayName || employees.find((e) => e.id === employeeId)?.upn || 'Employee';
+  const myLate = useMemo(() => lateRows.find((r) => r.employeeId === employeeId) || null, [lateRows, employeeId]);
+
+  // Downloading as PDF is really "print the page" (window.print()), and the
+  // browser's print header shows document.title — override the generic app
+  // title here so a printed/PDF'd report is headed with the actual company
+  // (and employee, in that mode) it's for, not "Techlogic Productivity System".
+  const companyName = isProvider ? companies.find((c) => c.id === companyId)?.name : org?.name;
+  useEffect(() => {
+    if (!companyName) return;
+    document.title = mode === 'employee' && employeeId ? `${companyName} — ${employeeName}` : `${companyName} — Executive Summary`;
+  }, [companyName, mode, employeeId, employeeName]);
 
   const performers = useMemo(() => {
     const ranked = [...(summary.employees || [])].filter((e) => (e.activeSec || 0) + (e.idleSec || 0) > 0).sort((a, b) => b.productivityPct - a.productivityPct);
@@ -112,8 +141,8 @@ export default function PortalExecutive() {
   return (
     <div className="max-w-5xl">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2 print:hidden">
-        <h1 className="text-xl font-bold text-gray-800">Executive summary</h1>
-        {reportOrgId && (
+        <h1 className="text-xl font-bold text-gray-800">{mode === 'employee' && employeeId ? `${employeeName} — summary` : 'Executive summary'}</h1>
+        {reportOrgId && (mode === 'company' || employeeId) && (
           <button onClick={() => window.print()} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 text-sm">
             Download PDF
           </button>
@@ -121,10 +150,20 @@ export default function PortalExecutive() {
       </div>
 
       <div className="flex items-center gap-2 text-sm flex-wrap mb-4 print:hidden">
+        <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+          <button onClick={() => setMode('company')} className={`px-3 py-1.5 ${mode === 'company' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Company</button>
+          <button onClick={() => setMode('employee')} className={`px-3 py-1.5 ${mode === 'employee' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Employee</button>
+        </div>
         {isProvider && (
           <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5">
             <option value="">Select a company…</option>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        )}
+        {mode === 'employee' && (
+          <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5" disabled={!reportOrgId}>
+            <option value="">Select an employee…</option>
+            {employees.map((e) => <option key={e.id} value={e.id}>{e.displayName || e.upn || 'Unnamed'}</option>)}
           </select>
         )}
         <div className="flex rounded-lg border border-gray-300 overflow-hidden">
@@ -145,6 +184,8 @@ export default function PortalExecutive() {
 
       {!reportOrgId ? (
         <div className="text-gray-400 text-sm">Pick a company to see its executive summary.</div>
+      ) : mode === 'employee' && !employeeId ? (
+        <div className="text-gray-400 text-sm">Pick an employee to see their summary.</div>
       ) : loading ? (
         <div className="text-gray-400 text-sm">Loading…</div>
       ) : (
@@ -162,25 +203,46 @@ export default function PortalExecutive() {
             <TrendChart days={summary.days} period={preset === 'month' || preset === '30d' ? 'week' : 'day'} />
           </Card>
 
-          <Card title="On-time arrivals" subtitle={`${lateSummary.onTimePct}% on-time across ${lateSummary.worked} worked day${lateSummary.worked === 1 ? '' : 's'}`}>
-            {lateSummary.worst.length === 0 ? (
-              <div className="p-6 text-gray-400 text-sm">No late arrivals in this period.</div>
-            ) : (
-              <div className="p-4">
-                <div className="text-xs text-gray-500 mb-2">Most late arrivals this period</div>
-                <div className="space-y-1.5">
-                  {lateSummary.worst.map((r) => (
-                    <div key={r.employeeId} onClick={() => navigate(`/portal/employees/${r.employeeId}`)}
-                      className="flex items-center justify-between text-sm print:cursor-default cursor-pointer hover:bg-gray-50 rounded px-2 py-1 -mx-2">
-                      <span className="text-gray-800">{r.displayName}</span>
-                      <span className="text-gray-500">{r.late} late day{r.late === 1 ? '' : 's'} · avg +{r.avgLateMin}m</span>
-                    </div>
-                  ))}
+          {mode === 'employee' ? (
+            <Card title="On-time arrivals" subtitle={myLate ? `${myLate.onTimePct}% on-time · office start ${myLate.officeStart} · avg start ${myLate.avgStart}` : 'No worked days in this period'}>
+              {!myLate || (myLate.days || []).length === 0 ? (
+                <div className="p-6 text-gray-400 text-sm">No tracked working days in this period.</div>
+              ) : (
+                <div className="p-4">
+                  <div className="flex flex-wrap gap-2">
+                    {myLate.days.map((d) => (
+                      <span key={d.date} className={`rounded-lg border px-2.5 py-1 text-xs ${d.lateBy > 0 ? 'border-red-200 bg-red-50 text-red-700' : 'border-gray-200 bg-white text-gray-700'}`}>
+                        <span className="text-gray-400">{fmtDay(d.date)}</span> <span className="font-semibold">{d.start}</span>
+                        {d.lateBy > 0 && <span className="ml-1 text-red-500">+{fmtLate(d.lateBy)}</span>}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-          </Card>
+              )}
+            </Card>
+          ) : (
+            <Card title="On-time arrivals" subtitle={`${lateSummary.onTimePct}% on-time across ${lateSummary.worked} worked day${lateSummary.worked === 1 ? '' : 's'}`}>
+              {lateSummary.worst.length === 0 ? (
+                <div className="p-6 text-gray-400 text-sm">No late arrivals in this period.</div>
+              ) : (
+                <div className="p-4">
+                  <div className="text-xs text-gray-500 mb-2">Most late arrivals this period</div>
+                  <div className="space-y-1.5">
+                    {lateSummary.worst.map((r) => (
+                      <div key={r.employeeId} onClick={() => navigate(`/portal/employees/${r.employeeId}`)}
+                        className="flex items-center justify-between text-sm print:cursor-default cursor-pointer hover:bg-gray-50 rounded px-2 py-1 -mx-2">
+                        <span className="text-gray-800">{r.displayName}</span>
+                        <span className="text-gray-500">{r.late} late day{r.late === 1 ? '' : 's'} · avg +{r.avgLateMin}m</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          )}
 
+          {mode === 'company' && (
+          <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             <Card title="Top performers" subtitle="by productivity %" className="mb-0">
               {performers.top.length === 0 ? <div className="p-6 text-gray-400 text-sm">No activity in this period.</div> : (
@@ -227,8 +289,10 @@ export default function PortalExecutive() {
               </div>
             )}
           </Card>
+          </>
+          )}
 
-          <Card title="Top apps & sites" subtitle="company-wide">
+          <Card title="Top apps & sites" subtitle={mode === 'employee' ? employeeName : 'company-wide'}>
             <AppUsageBars apps={topApps} />
           </Card>
         </>
