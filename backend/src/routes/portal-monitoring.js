@@ -304,6 +304,110 @@ router.get(
   }),
 );
 
+// Browsers are one process for every tab, so a per-process total would just say
+// "Microsoft Edge" — label those rows by the window-title's first segment
+// instead (e.g. "YouTube", "ChatGPT"), same convention as the single-day
+// app/site breakdown on the employee page.
+const BROWSER_PROCESSES = new Set(['MSEDGE.EXE', 'CHROME.EXE', 'FIREFOX.EXE', 'BRAVE.EXE', 'OPERA.EXE', 'IEXPLORE.EXE', 'ARC.EXE', 'VIVALDI.EXE']);
+
+// GET /top-apps?employeeId=&fromDate=&toDate=            — one employee's
+// app/site usage over a period, ranked by time.
+// GET /top-apps?[groupId=]&fromDate=&toDate=              — company/department
+// -wide, summed across every active member in scope (groupId narrows to one
+// department; omitted, it's the caller's whole scope — same as /summary).
+// Mirrors the employee page's client-side single-day breakdown, but aggregated
+// server-side over a date range — a month of raw events is too much to ship to
+// the browser for client-side aggregation the way a single day's is.
+router.get(
+  '/top-apps',
+  asyncHandler(async (req, res) => {
+    const { employeeId, groupId, fromDate, toDate } = req.query;
+
+    const end = toDate ? dateOnly(toDate) : dateOnly(new Date());
+    const start = fromDate ? dateOnly(fromDate) : new Date(end);
+    if (!fromDate) start.setUTCDate(start.getUTCDate() - 29); // default: last 30 days
+    const rangeDays = Math.round((end - start) / 86400000) + 1;
+    if (rangeDays < 1 || rangeDays > 92) return res.status(400).json({ error: 'Pick a range of up to ~3 months.' });
+    const rangeEnd = new Date(end); rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 1);
+    const range = { fromDate: start.toISOString().slice(0, 10), toDate: end.toISOString().slice(0, 10) };
+
+    let employees;
+    if (employeeId) {
+      const emp = await prisma.monitoredEmployee.findFirst({
+        where: { id: employeeId, ...scopeFor(req.portalUser) },
+        select: { id: true, organisationId: true },
+      });
+      if (!emp) return res.status(404).json({ error: 'Employee not found in your scope' });
+      employees = [emp];
+    } else {
+      const empWhere = { ...scopeFor(req.portalUser), isActive: true };
+      // Same department-widening rule as /summary and /late-report: groupId is
+      // optional here (unlike /heatmap's team mode, where it's mandatory), so
+      // guard on it being present too, not just the role.
+      if (groupId && ['PROVIDER_ADMIN', 'PROVIDER_SUPPORT', 'ORG_ADMIN', 'MANAGER'].includes(req.portalUser.role)) {
+        empWhere.groupId = groupId;
+      }
+      const orgPick = providerOrgScope(req);
+      if (orgPick) empWhere.organisationId = orgPick;
+      employees = await prisma.monitoredEmployee.findMany({ where: empWhere, select: { id: true, organisationId: true } });
+      if (employees.length === 0) return res.json({ apps: [], totalSec: 0, ...range });
+    }
+
+    // Classification (app catalogue + title rules) is per-org — cached since a
+    // team report only ever touches one org in practice, but a provider's group
+    // filter could theoretically span more than one.
+    const classCache = new Map();
+    const classFor = async (orgId) => {
+      const key = orgId || '__none__';
+      if (!classCache.has(key)) classCache.set(key, await effectiveClassification(orgId));
+      return classCache.get(key);
+    };
+
+    const usage = new Map(); // label (lowercased) -> { label, sec, weightSec, categorySec }
+    let totalSec = 0;
+    for (const emp of employees) {
+      const events = await prisma.activityEvent.findMany({
+        where: { employeeId: emp.id, startTime: { gte: start, lt: rangeEnd }, isIdle: false },
+        select: { processName: true, windowTitle: true, durationSec: true },
+        take: 20000,
+      });
+      const { byProc, titleRules } = await classFor(emp.organisationId);
+      for (const e of events) {
+        const sec = e.durationSec || 0;
+        if (!sec) continue;
+        const proc = (e.processName || '').toUpperCase();
+        const cls = resolveClassification(e.processName, e.windowTitle, byProc, titleRules);
+        const label = (BROWSER_PROCESSES.has(proc) && e.windowTitle)
+          ? (e.windowTitle.split(/\s[-–|]\s/)[0].trim() || cls.displayName || e.processName)
+          : (cls.displayName || e.processName || 'Unknown');
+        const key = label.toLowerCase();
+        const row = usage.get(key) || { label, sec: 0, weightSec: {}, categorySec: {} };
+        row.sec += sec;
+        row.weightSec[cls.weight] = (row.weightSec[cls.weight] || 0) + sec;
+        row.categorySec[cls.category] = (row.categorySec[cls.category] || 0) + sec;
+        usage.set(key, row);
+        totalSec += sec;
+      }
+    }
+
+    const topKey = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const apps = [...usage.values()]
+      .map((r) => ({
+        label: r.label, sec: r.sec,
+        weight: topKey(r.weightSec) || 'NEUTRAL',
+        category: topKey(r.categorySec) || 'UNCATEGORISED',
+        pct: totalSec ? Math.round((r.sec / totalSec) * 100) : 0,
+      }))
+      .sort((a, b) => b.sec - a.sec)
+      .slice(0, 25);
+
+    if (employeeId) await logAccess(req.portalUser, 'VIEW_TOP_APPS', { targetEmployeeId: employeeId, meta: { fromDate, toDate } });
+    else await logAccess(req.portalUser, 'VIEW_TEAM_TOP_APPS', { meta: { groupId, fromDate, toDate } });
+
+    res.json({ apps, totalSec, ...range });
+  }),
+);
+
 router.get(
   '/devices',
   asyncHandler(async (req, res) => {

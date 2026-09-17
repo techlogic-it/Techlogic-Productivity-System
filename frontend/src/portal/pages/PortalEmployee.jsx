@@ -3,6 +3,8 @@ import { useParams, Link, useSearchParams } from 'react-router-dom';
 import portalApi from '../portalApi';
 import { fmtDur, fmtDateInput, fmtTime } from '../portalUtils';
 import { RingStat, hrsShort, RING } from '../components/RingStat';
+import TrendChart from '../components/TrendChart';
+import AppUsageBars from '../components/AppUsageBars';
 
 // Browsers are one process for every tab, so a per-process total would just say
 // "Microsoft Edge". Label browser rows by their window-title's first segment
@@ -56,6 +58,16 @@ export default function PortalEmployee() {
     portalApi.get(`/monitoring/summary?employeeId=${id}&fromDate=${periodFrom}&toDate=${periodTo}`)
       .then((r) => setPeriod(r.data || { total: {} }))
       .catch((e) => setError(e.response?.data?.error || 'Not available in your scope'));
+  }, [id, periodFrom, periodTo]);
+
+  // Top apps & sites for the whole selected period (not just the single `date`
+  // below) — aggregated server-side since a month of raw events is too much to
+  // ship to the browser for client-side aggregation.
+  const [periodApps, setPeriodApps] = useState([]);
+  useEffect(() => {
+    portalApi.get(`/monitoring/top-apps?employeeId=${id}&fromDate=${periodFrom}&toDate=${periodTo}`)
+      .then((r) => setPeriodApps(r.data?.apps || []))
+      .catch(() => setPeriodApps([]));
   }, [id, periodFrom, periodTo]);
 
   useEffect(() => {
@@ -187,6 +199,20 @@ export default function PortalEmployee() {
       <p className="text-xs text-gray-400 mb-4">
         {preset === 'today' ? "Today's" : `${periodFrom} to ${periodTo}`} totals. App/site breakdown, screenshots and timeline below are always for one day at a time:
       </p>
+
+      {(period.days || []).length > 1 && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+          <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-700 text-sm">Productivity trend</div>
+          <TrendChart days={period.days} period={preset === 'month' ? 'week' : 'day'} />
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+        <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-700 text-sm">
+          Top apps &amp; sites <span className="font-normal text-gray-400">({preset === 'today' ? 'today' : `${periodFrom} to ${periodTo}`})</span>
+        </div>
+        <AppUsageBars apps={periodApps} />
+      </div>
 
       <div className="flex items-center gap-2 text-sm flex-wrap mb-6">
         <span className="text-xs text-gray-400">Day</span>

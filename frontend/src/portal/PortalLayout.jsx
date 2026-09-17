@@ -54,6 +54,7 @@ export default function PortalLayout({ children }) {
           {isAtLeast(user?.role, 'GROUP_ADMIN') && <NavItem to="/portal/employees">People</NavItem>}
           {isAtLeast(user?.role, 'GROUP_ADMIN') && <NavItem to="/portal/reports">Reports</NavItem>}
           {isAtLeast(user?.role, 'GROUP_ADMIN') && <NavItem to="/portal/heatmap">Heatmap</NavItem>}
+          {isAtLeast(user?.role, 'MANAGER') && <NavItem to="/portal/executive">Executive summary</NavItem>}
           {isAtLeast(user?.role, 'GROUP_ADMIN') && <NavItem to="/portal/time-tracking">Time Tracking</NavItem>}
           {isAtLeast(user?.role, 'MANAGER') && <NavItem to="/portal/devices">Devices</NavItem>}
           {isAtLeast(user?.role, 'ORG_ADMIN') && <NavItem to="/portal/admin">{user?.role === 'PROVIDER_ADMIN' || user?.role === 'PROVIDER_SUPPORT' || user?.role === 'PROVIDER_VIEWER' ? 'Companies' : 'Admin'}</NavItem>}
