@@ -7,10 +7,14 @@ const prisma = new PrismaClient();
 const APPS = [
   // Communication
   { processName: 'OUTLOOK.EXE', displayName: 'Outlook', category: 'COMMUNICATION', weight: 'NEUTRAL' },
-  { processName: 'TEAMS.EXE', displayName: 'Microsoft Teams', category: 'COMMUNICATION', weight: 'NEUTRAL' },
-  { processName: 'MS-TEAMS.EXE', displayName: 'Microsoft Teams (new)', category: 'COMMUNICATION', weight: 'NEUTRAL' },
+  // Meeting/call apps are PRODUCTIVE (not the COMMUNICATION default of NEUTRAL):
+  // someone on a call is often hands-off the keyboard/mouse for long stretches,
+  // so when there IS any detected activity in one of these, it should count as
+  // real work rather than being lumped in with e.g. checking Outlook.
+  { processName: 'TEAMS.EXE', displayName: 'Microsoft Teams', category: 'COMMUNICATION', weight: 'PRODUCTIVE' },
+  { processName: 'MS-TEAMS.EXE', displayName: 'Microsoft Teams (new)', category: 'COMMUNICATION', weight: 'PRODUCTIVE' },
+  { processName: 'ZOOM.EXE', displayName: 'Zoom', category: 'COMMUNICATION', weight: 'PRODUCTIVE' },
   { processName: 'SLACK.EXE', displayName: 'Slack', category: 'COMMUNICATION', weight: 'NEUTRAL' },
-  { processName: 'ZOOM.EXE', displayName: 'Zoom', category: 'COMMUNICATION', weight: 'NEUTRAL' },
 
   // Productive / Office
   { processName: 'EXCEL.EXE', displayName: 'Excel', category: 'PRODUCTIVE', weight: 'PRODUCTIVE' },
