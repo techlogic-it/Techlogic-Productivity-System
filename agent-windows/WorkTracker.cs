@@ -155,6 +155,14 @@ internal sealed class WorkTrackerForm : Form
     private readonly List<RunningRow> _running = new();
     private List<ClientDto> _clients = new();
 
+    // An unattended PC shouldn't keep racking up billable time against a
+    // client — auto-stop every running task once the computer (keyboard/mouse,
+    // system-wide) has been idle this long. Guarded by _autoStopping so an
+    // in-flight stop (each is an awaited /work/end call) can't be re-triggered
+    // by the next 1s tick before it finishes.
+    private const int IdleAutoStopSec = 15 * 60;
+    private bool _autoStopping;
+
     public WorkTrackerForm(Config cfg, AgentState state, Identity id)
     {
         _client = new WorkClient(cfg, state);
@@ -175,7 +183,7 @@ internal sealed class WorkTrackerForm : Form
 
         _startButton.FlatAppearance.BorderSize = 0;
         _startButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(28, 120, 70);
-        _tickTimer.Tick += (_, __) => RefreshElapsed();
+        _tickTimer.Tick += (_, __) => { RefreshElapsed(); CheckIdleAutoStop(); };
         _tickTimer.Start();
         // Fires after the control hierarchy is fully laid out but before the
         // window is actually painted, so resizing here is invisible to the user.
@@ -355,11 +363,11 @@ internal sealed class WorkTrackerForm : Form
             Location = new Point(RowInset.Left, RowInset.Top + titleH),
             Size = new Size(Math.Max(20, textRight - RowInset.Left), elapsedH),
         };
-        stop.Click += async (_, __) => await StopClicked(row, panel, stop);
+        stop.Click += async (_, __) => await StopClicked(row, stop);
         panel.Controls.Add(titleLabel);
         panel.Controls.Add(elapsedLabel);
         panel.Controls.Add(stop);
-        row.TitleLabel = titleLabel; row.ElapsedLabel = elapsedLabel;
+        row.TitleLabel = titleLabel; row.ElapsedLabel = elapsedLabel; row.Container = panel;
         _running.Add(row);
         _runningPanel.Controls.Add(panel);
         RefreshElapsed();
@@ -379,15 +387,45 @@ internal sealed class WorkTrackerForm : Form
         foreach (var row in _running) ApplyLabels(row);
     }
 
-    private async Task StopClicked(RunningRow row, Panel panel, Button stop)
+    private async Task StopClicked(RunningRow row, Button stop)
     {
         stop.Enabled = false;
-        var ok = await _client.End(row.AgentSessionId);
+        var ok = await StopSession(row);
         if (!ok) { stop.Enabled = true; SetStatus("Couldn't stop the task — check your connection.", isError: true); return; }
-        _running.Remove(row);
-        _runningPanel.Controls.Remove(panel);
-        panel.Dispose();
         SetStatus($"Stopped: {row.TaskName}");
+    }
+
+    // Shared by the manual Stop button and the idle auto-stop below — calls
+    // /work/end and removes the row's own panel from the running list on success.
+    private async Task<bool> StopSession(RunningRow row)
+    {
+        var ok = await _client.End(row.AgentSessionId);
+        if (!ok) return false;
+        _running.Remove(row);
+        if (row.Container is not null) { _runningPanel.Controls.Remove(row.Container); row.Container.Dispose(); }
+        return true;
+    }
+
+    private void CheckIdleAutoStop()
+    {
+        if (_autoStopping || _running.Count == 0) return;
+        // Fully qualified: Control.Capture (a WinForms property this Form inherits)
+        // shadows the ProductivityAgent.Capture class name here.
+        if (ProductivityAgent.Capture.GetIdleSeconds() < IdleAutoStopSec) return;
+        _autoStopping = true;
+        _ = AutoStopIdleTasks();
+    }
+
+    private async Task AutoStopIdleTasks()
+    {
+        var stopped = 0;
+        foreach (var row in _running.ToList())
+        {
+            if (await StopSession(row)) stopped++;
+        }
+        if (stopped > 0)
+            SetStatus($"Stopped {stopped} task{(stopped == 1 ? "" : "s")} after 15 minutes of inactivity.");
+        _autoStopping = false;
     }
 
     private sealed class RunningRow
@@ -398,6 +436,7 @@ internal sealed class WorkTrackerForm : Form
         public readonly DateTime StartTime;
         public Label? TitleLabel;
         public Label? ElapsedLabel;
+        public Panel? Container;
         public RunningRow(string id, string? clientName, string taskName, DateTime start)
         { AgentSessionId = id; ClientName = clientName; TaskName = taskName; StartTime = start; }
     }
