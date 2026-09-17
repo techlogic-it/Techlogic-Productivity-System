@@ -219,6 +219,80 @@ export function aggregateEmployeeDay(rawEvents, cfg, merged) {
   return acc;
 }
 
+// Split [startMs, endMs) into segments aligned to local clock-hour boundaries
+// in `timezone`, calling emit(segStartMs, segEndMs) for each. Most activity
+// segments are far shorter than an hour so this usually emits once, but a long
+// idle-free stretch (one app left running for hours) can straddle several —
+// each needs to land in its own (day, hour) bucket. A minute's seconds-of are
+// timezone-invariant (real-world UTC offsets are whole minutes), so only the
+// minute-of-hour needs the timezone-aware lookup; DST's rare fractional-hour
+// shift is not worth correcting for in a reporting heatmap.
+function forEachHourSegment(startMs, endMs, timezone, emit) {
+  let cursor = startMs;
+  while (cursor < endMs) {
+    const { minutesOfDay } = localTimeInfo(new Date(cursor), timezone);
+    const secIntoHour = (minutesOfDay % 60) * 60 + Math.floor((cursor / 1000) % 60);
+    const boundary = Math.min(endMs, cursor + Math.max(1, 3600 - secIntoHour) * 1000);
+    emit(cursor, boundary);
+    cursor = boundary;
+  }
+}
+
+// Aggregate one employee's raw events into a day-of-week × hour-of-day grid —
+// powers the productivity heatmap report. Same cross-device dedup sweep line
+// as aggregateEmployeeDay (active beats idle; among active, most-productive
+// wins) but a winning segment is split at local hour boundaries and added to
+// its bucket instead of one running total. Deliberately does NOT gate on
+// office hours the way the daily rollup does — the heatmap's whole point is
+// showing the real pattern across evenings/weekends too, not just the
+// office-hours slice, so its numbers are a superset view, not the same
+// "productive %" figure shown elsewhere.
+export function aggregateHeatmapBuckets(rawEvents, timezone, merged) {
+  const buckets = new Map(); // "dayNum-hour" -> { dayNum, hour, activeSec, productiveSec }
+  const bucket = (dayNum, hour) => {
+    const key = `${dayNum}-${hour}`;
+    if (!buckets.has(key)) buckets.set(key, { dayNum, hour, activeSec: 0, productiveSec: 0 });
+    return buckets.get(key);
+  };
+
+  const evs = rawEvents
+    .map((e) => {
+      const cls = e.isIdle ? null : resolveClassification(e.processName, e.windowTitle, merged.appMap, merged.rules);
+      const weight = cls?.weight || 'NEUTRAL';
+      return {
+        startMs: new Date(e.startTime).getTime(), endMs: new Date(e.endTime).getTime(),
+        isIdle: e.isIdle, weight,
+        pr: e.isIdle ? 100 : (weight === 'PRODUCTIVE' ? 0 : weight === 'NEUTRAL' ? 1 : 2),
+      };
+    })
+    .filter((e) => e.endMs > e.startMs);
+  if (!evs.length) return [...buckets.values()];
+
+  const starts = evs.slice().sort((a, b) => a.startMs - b.startMs);
+  const bounds = [...new Set(evs.flatMap((e) => [e.startMs, e.endMs]))].sort((a, b) => a - b);
+  let si = 0;
+  const active = new Set();
+  for (let i = 0; i < bounds.length - 1; i++) {
+    const a = bounds[i], b = bounds[i + 1];
+    while (si < starts.length && starts[si].startMs <= a) { active.add(starts[si]); si++; }
+    for (const e of active) if (e.endMs <= a) active.delete(e);
+    if (active.size === 0) continue;
+    let win = null;
+    for (const e of active) if (!win || e.pr < win.pr || (e.pr === win.pr && e.startMs < win.startMs)) win = e;
+    if (win.isIdle) continue; // the heatmap only shows active/productive time
+
+    forEachHourSegment(a, b, timezone, (segStart, segEnd) => {
+      const { dayNum, minutesOfDay } = localTimeInfo(new Date(segStart), timezone);
+      const bk = bucket(dayNum, Math.floor(minutesOfDay / 60));
+      const durSec = (segEnd - segStart) / 1000;
+      bk.activeSec += durSec;
+      if (win.weight === 'PRODUCTIVE') bk.productiveSec += durSec;
+    });
+  }
+  for (const bk of buckets.values()) { bk.activeSec = Math.round(bk.activeSec); bk.productiveSec = Math.round(bk.productiveSec); }
+  return [...buckets.values()];
+}
+
 // How many trailing days to recompute each run. A rolling window keeps the job
 // cheap and idempotent while still absorbing late uploads from laptops that
 // were offline. Bump if devices are commonly offline longer than this.

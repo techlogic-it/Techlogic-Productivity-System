@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Browsers strip background colours when printing by default — force them to
+   render, since the heatmap report's whole point is its colour intensity. */
+@media print {
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+}
+
 /* Smooth scrollbar for the main content area */
 ::-webkit-scrollbar {
   width: 6px;

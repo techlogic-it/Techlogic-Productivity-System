@@ -43,8 +43,8 @@ export default function PortalLayout({ children }) {
     : org?.name || (user?.role === 'PROVIDER_ADMIN' ? 'All organisations' : '');
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
-      <aside className="w-60 shrink-0 bg-gray-900 flex flex-col">
+    <div className="flex h-screen bg-gray-50 overflow-hidden print:h-auto print:overflow-visible print:block">
+      <aside className="w-60 shrink-0 bg-gray-900 flex flex-col print:hidden">
         <div className="px-4 py-5 border-b border-gray-800">
           <div className="text-white font-bold leading-tight">Techlogic</div>
           <div className="text-xs text-gray-400">Productivity System</div>
@@ -53,6 +53,7 @@ export default function PortalLayout({ children }) {
           <NavItem to="/portal" end>Dashboard</NavItem>
           {isAtLeast(user?.role, 'GROUP_ADMIN') && <NavItem to="/portal/employees">People</NavItem>}
           {isAtLeast(user?.role, 'GROUP_ADMIN') && <NavItem to="/portal/reports">Reports</NavItem>}
+          {isAtLeast(user?.role, 'GROUP_ADMIN') && <NavItem to="/portal/heatmap">Heatmap</NavItem>}
           {isAtLeast(user?.role, 'GROUP_ADMIN') && <NavItem to="/portal/time-tracking">Time Tracking</NavItem>}
           {isAtLeast(user?.role, 'MANAGER') && <NavItem to="/portal/devices">Devices</NavItem>}
           {isAtLeast(user?.role, 'ORG_ADMIN') && <NavItem to="/portal/admin">{user?.role === 'PROVIDER_ADMIN' || user?.role === 'PROVIDER_SUPPORT' || user?.role === 'PROVIDER_VIEWER' ? 'Companies' : 'Admin'}</NavItem>}
@@ -68,11 +69,11 @@ export default function PortalLayout({ children }) {
         </div>
       </aside>
 
-      <div className="flex flex-col flex-1 min-w-0">
-        <header className="h-14 shrink-0 bg-white border-b border-gray-200 flex items-center justify-between px-6">
+      <div className="flex flex-col flex-1 min-w-0 print:block">
+        <header className="h-14 shrink-0 bg-white border-b border-gray-200 flex items-center justify-between px-6 print:hidden">
           <div className="text-sm text-gray-500">{scopeLabel}</div>
         </header>
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-6 print:overflow-visible print:p-0">{children}</main>
       </div>
     </div>
   );

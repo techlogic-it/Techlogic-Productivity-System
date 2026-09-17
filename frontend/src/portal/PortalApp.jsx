@@ -10,6 +10,7 @@ import PortalAdmin from './pages/PortalAdmin';
 import PortalSettings from './pages/PortalSettings';
 import PortalProviderUsers from './pages/PortalProviderUsers';
 import PortalReports from './pages/PortalReports';
+import PortalHeatmap from './pages/PortalHeatmap';
 import PortalDevices from './pages/PortalDevices';
 import PortalTimeTracking from './pages/PortalTimeTracking';
 
@@ -41,6 +42,10 @@ function Shell() {
       <Route
         path="/portal/reports"
         element={<RequireAuth minRole="GROUP_ADMIN"><PortalLayout><PortalReports /></PortalLayout></RequireAuth>}
+      />
+      <Route
+        path="/portal/heatmap"
+        element={<RequireAuth minRole="GROUP_ADMIN"><PortalLayout><PortalHeatmap /></PortalLayout></RequireAuth>}
       />
       <Route
         path="/portal/devices"

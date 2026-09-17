@@ -12,6 +12,7 @@ import {
   effectiveClassification,
   officeConfig,
   localTimeInfo,
+  aggregateHeatmapBuckets,
 } from '../lib/monitoring-rollup.js';
 import { generateAgentToken, hashAgentToken } from '../middleware/agent-auth.js';
 import { sendDigest, emailConfigured } from '../lib/digests.js';
@@ -213,6 +214,93 @@ router.get(
     rows.sort((a, b) => b.late - a.late || b.avgLateMin - a.avgLateMin);
     await logAccess(req.portalUser, 'VIEW_LATE_REPORT', {});
     res.json({ rows });
+  }),
+);
+
+// GET /heatmap?employeeId=&fromDate=&toDate=  — one employee's day-of-week ×
+// hour-of-day productivity grid, for the heatmap report + PDF export.
+// GET /heatmap?groupId=&fromDate=&toDate=     — team report: a grid aggregated
+// across every active member of the group, plus each member's own grid.
+router.get(
+  '/heatmap',
+  asyncHandler(async (req, res) => {
+    const { employeeId, groupId, fromDate, toDate } = req.query;
+    if (!employeeId && !groupId) return res.status(400).json({ error: 'employeeId or groupId is required' });
+
+    const end = toDate ? dateOnly(toDate) : dateOnly(new Date());
+    const start = fromDate ? dateOnly(fromDate) : new Date(end);
+    if (!fromDate) start.setUTCDate(start.getUTCDate() - 27); // default: last 4 weeks
+    const rangeDays = Math.round((end - start) / 86400000) + 1;
+    if (rangeDays < 1 || rangeDays > 92) return res.status(400).json({ error: 'Pick a range of up to ~3 months.' });
+    const rangeEnd = new Date(end); rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 1);
+
+    let employees;
+    if (employeeId) {
+      const emp = await prisma.monitoredEmployee.findFirst({
+        where: { id: employeeId, ...scopeFor(req.portalUser) },
+        select: { id: true, displayName: true, upn: true, organisationId: true },
+      });
+      if (!emp) return res.status(404).json({ error: 'Employee not found in your scope' });
+      employees = [emp];
+    } else {
+      const empWhere = { ...scopeFor(req.portalUser), isActive: true };
+      // Same department-widening rule as /late-report: only company-wide roles
+      // may target an explicit groupId — a GROUP_ADMIN/VIEWER is already pinned
+      // to their own group by scopeFor, so their own query param is ignored.
+      if (['PROVIDER_ADMIN', 'PROVIDER_SUPPORT', 'ORG_ADMIN', 'MANAGER'].includes(req.portalUser.role)) {
+        empWhere.groupId = groupId;
+      }
+      const orgPick = providerOrgScope(req);
+      if (orgPick) empWhere.organisationId = orgPick;
+      employees = await prisma.monitoredEmployee.findMany({
+        where: empWhere,
+        select: { id: true, displayName: true, upn: true, organisationId: true },
+      });
+      if (employees.length === 0) return res.json({ team: null, members: [] });
+    }
+
+    // Office timezone drives which local hour/day a segment falls in — cached
+    // per org since a team report can (rarely) span employees in different
+    // companies if a provider views a cross-org group filter.
+    const cfgCache = new Map();
+    const tzFor = async (orgId) => {
+      const key = orgId || '__none__';
+      if (!cfgCache.has(key)) cfgCache.set(key, officeConfig(await getMonitoringSettings(orgId)).timezone);
+      return cfgCache.get(key);
+    };
+
+    const members = [];
+    for (const emp of employees) {
+      const events = await prisma.activityEvent.findMany({
+        where: { employeeId: emp.id, startTime: { gte: start, lt: rangeEnd } },
+        select: { startTime: true, endTime: true, isIdle: true, processName: true, windowTitle: true },
+        take: 20000,
+      });
+      const { byProc, titleRules } = await effectiveClassification(emp.organisationId);
+      const timezone = await tzFor(emp.organisationId);
+      const buckets = aggregateHeatmapBuckets(events, timezone, { appMap: byProc, rules: titleRules });
+      members.push({ employeeId: emp.id, displayName: emp.displayName || emp.upn || 'Unnamed', buckets });
+    }
+
+    const range = { fromDate: start.toISOString().slice(0, 10), toDate: end.toISOString().slice(0, 10) };
+
+    if (employeeId) {
+      await logAccess(req.portalUser, 'VIEW_HEATMAP', { targetEmployeeId: employeeId, meta: { fromDate, toDate } });
+      return res.json({ employee: members[0], ...range });
+    }
+
+    // Team aggregate — sum every member's buckets into one combined grid.
+    const teamMap = new Map();
+    for (const m of members) {
+      for (const b of m.buckets) {
+        const key = `${b.dayNum}-${b.hour}`;
+        const t = teamMap.get(key) || { dayNum: b.dayNum, hour: b.hour, activeSec: 0, productiveSec: 0 };
+        t.activeSec += b.activeSec; t.productiveSec += b.productiveSec;
+        teamMap.set(key, t);
+      }
+    }
+    await logAccess(req.portalUser, 'VIEW_TEAM_HEATMAP', { meta: { groupId, fromDate, toDate } });
+    res.json({ team: { buckets: [...teamMap.values()] }, members, ...range });
   }),
 );
 
