@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import portalApi from '../portalApi';
 import { usePortalAuth, isProvider as isProviderRole } from '../PortalAuthContext';
+import TeamOverrides from '../components/TeamOverrides';
 
 const DAYS = [['1', 'Mon'], ['2', 'Tue'], ['3', 'Wed'], ['4', 'Thu'], ['5', 'Fri'], ['6', 'Sat'], ['7', 'Sun']];
 const CATEGORIES = ['PRODUCTIVE', 'COMMUNICATION', 'DEVELOPMENT', 'ADMIN_BACKOFFICE', 'RMM_SUPPORT', 'RESEARCH', 'SOCIAL', 'ENTERTAINMENT', 'UNCATEGORISED', 'BLOCKED_HIGH_RISK'];
@@ -271,6 +272,10 @@ export default function PortalSettings() {
                 </div>
               </>
             )}
+          </Card>
+
+          <Card title="Team settings" subtitle="Give a team its own office hours or screenshot setting. Anything you leave alone follows the company settings above.">
+            <TeamOverrides orgId={orgId} q={q} company={s} />
           </Card>
 
           <Card title="Work Tracker" subtitle="An on-screen widget where staff pick a client, start/stop timed tasks — several at once if needed.">

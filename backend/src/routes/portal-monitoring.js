@@ -11,6 +11,7 @@ import {
   resolveClassification,
   effectiveClassification,
   officeConfig,
+  officeConfigFor,
   localTimeInfo,
   aggregateHeatmapBuckets,
 } from '../lib/monitoring-rollup.js';
@@ -157,7 +158,7 @@ router.get(
     }
     const employees = await prisma.monitoredEmployee.findMany({
       where: empWhere,
-      select: { id: true, displayName: true, upn: true, organisationId: true },
+      select: { id: true, displayName: true, upn: true, organisationId: true, groupId: true },
     });
     if (employees.length === 0) return res.json({ rows: [] });
 
@@ -169,17 +170,18 @@ router.get(
     for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) days.push(new Date(d));
     if (days.length === 0 || days.length > 92) return res.status(400).json({ error: 'Pick a range of up to ~3 months.' });
 
-    // Office config per org (cached) — drives office-start, working days, timezone.
+    // Office config per (org, team), cached — drives office-start, working days,
+    // timezone. A team's own hours override its company's.
     const cfgCache = new Map();
-    const cfgFor = async (orgId) => {
-      const key = orgId || '__none__';
-      if (!cfgCache.has(key)) cfgCache.set(key, officeConfig(await getMonitoringSettings(orgId)));
+    const cfgFor = async (orgId, groupId) => {
+      const key = `${orgId || '__none__'}|${groupId || ''}`;
+      if (!cfgCache.has(key)) cfgCache.set(key, await officeConfigFor(orgId, groupId));
       return cfgCache.get(key);
     };
 
     const rows = [];
     for (const emp of employees) {
-      const cfg = await cfgFor(emp.organisationId);
+      const cfg = await cfgFor(emp.organisationId, emp.groupId);
       let worked = 0, late = 0, totalLate = 0, worst = 0, totalArrival = 0;
       const dayList = []; // every worked day: when they started, and how late
       for (const day of days) {
@@ -818,6 +820,48 @@ router.put(
       create: { id: crypto.randomUUID(), organisationId: orgId, officeStart: '08:00', officeEnd: '18:00', workingDays: '1,2,3,4,5', timezone: 'Europe/London', ...data },
     });
     res.json(settings);
+  }),
+);
+
+// PUT /group-settings/:groupId — a team's overrides of the company settings.
+// Body: { useCompanyHours: true } clears the team's hours back to the company's,
+// otherwise { officeStart, officeEnd, workingDays } sets all three together.
+// { screenshotsEnabled: true | false | null } — null inherits the company setting.
+// The list of teams (with these fields) comes from GET /orgs/organisations/:id/groups.
+router.put(
+  '/group-settings/:groupId',
+  requirePortalRole('ORG_ADMIN'),
+  asyncHandler(async (req, res) => {
+    const orgId = targetOrgId(req);
+    if (!orgId) return res.status(400).json({ error: 'organisationId is required' });
+    const group = await prisma.group.findFirst({ where: { id: req.params.groupId, organisationId: orgId } });
+    if (!group) return res.status(404).json({ error: 'Team not found' });
+
+    const { useCompanyHours, officeStart, officeEnd, workingDays, screenshotsEnabled } = req.body || {};
+    const hhmm = /^([01]?\d|2[0-3]):[0-5]\d$/;
+    const data = {};
+
+    if (useCompanyHours === true) {
+      data.officeStart = null; data.officeEnd = null; data.workingDays = null;
+    } else if (officeStart !== undefined || officeEnd !== undefined || workingDays !== undefined) {
+      if (!hhmm.test(officeStart || '') || !hhmm.test(officeEnd || '')) {
+        return res.status(400).json({ error: 'Set both a start and end time (HH:mm).' });
+      }
+      const days = Array.isArray(workingDays) ? workingDays : String(workingDays || '').split(',');
+      const norm = [...new Set(days.map((d) => Number(d)).filter((n) => n >= 1 && n <= 7))].sort((a, b) => a - b);
+      if (norm.length === 0) return res.status(400).json({ error: 'Pick at least one working day.' });
+      data.officeStart = officeStart; data.officeEnd = officeEnd; data.workingDays = norm.join(',');
+    }
+
+    if (screenshotsEnabled !== undefined) {
+      if (screenshotsEnabled === true && !screenshotsConfigured()) {
+        return res.status(400).json({ error: 'Screenshot storage is not configured on this server yet — ask your provider to set it up first.' });
+      }
+      data.screenshotsEnabled = screenshotsEnabled === null ? null : !!screenshotsEnabled;
+    }
+
+    if (Object.keys(data).length === 0) return res.status(400).json({ error: 'Nothing to update' });
+    res.json(await prisma.group.update({ where: { id: group.id }, data }));
   }),
 );
 

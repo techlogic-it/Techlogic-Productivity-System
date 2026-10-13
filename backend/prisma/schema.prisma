@@ -89,6 +89,14 @@ model Group {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
+  // Per-team overrides of the company's MonitoringSetting. null = inherit the
+  // company value, so a team only stores what actually differs. Office hours are
+  // set/cleared together (start, end and days) by the settings route.
+  officeStart        String?
+  officeEnd          String?
+  workingDays        String?
+  screenshotsEnabled Boolean?
+
   portalUsers PortalUser[]
   employees   MonitoredEmployee[]
 

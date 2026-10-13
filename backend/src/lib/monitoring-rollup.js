@@ -110,18 +110,55 @@ export async function getMonitoringSettings(organisationId = null) {
   }
 }
 
+// Team (Group) overrides sit on top of the company's settings: a null field on
+// the group inherits the company value. Timezone is deliberately company-wide.
+export function applyGroupOverrides(orgSettings, group) {
+  const base = orgSettings || DEFAULT_SETTINGS;
+  if (!group) return base;
+  return {
+    ...base,
+    officeStart: group.officeStart ?? base.officeStart,
+    officeEnd: group.officeEnd ?? base.officeEnd,
+    workingDays: group.workingDays ?? base.workingDays,
+  };
+}
+
+// Whether screenshots are on for a person in `group`: the team's explicit
+// on/off wins, otherwise the company setting.
+export function effectiveScreenshotsEnabled(orgSettings, group) {
+  return group?.screenshotsEnabled ?? !!orgSettings?.screenshotsEnabled;
+}
+
+// Office config for one employee's team (or the company's, if the team has no
+// overrides). Cache the result per (org, group) when calling in a loop.
+export async function officeConfigFor(organisationId, groupId) {
+  const settings = await getMonitoringSettings(organisationId);
+  const group = groupId
+    ? await prisma.group.findUnique({ where: { id: groupId }, select: { officeStart: true, officeEnd: true, workingDays: true } })
+    : null;
+  return officeConfig(applyGroupOverrides(settings, group));
+}
+
 // Build a map of organisationId → officeConfig for the rollup, plus the default
 // config used for employees whose org hasn't customised office hours (and for the
-// internal build, where organisationId is null).
+// internal build, where organisationId is null). byGroup holds the config for
+// each team that overrides its company's office hours.
 export async function loadOrgConfigs() {
   const rows = await prisma.monitoringSetting.findMany();
   const byOrg = new Map();
+  const rowByOrg = new Map();
   let global = null;
   for (const r of rows) {
-    if (r.organisationId) byOrg.set(r.organisationId, officeConfig(r));
+    if (r.organisationId) { byOrg.set(r.organisationId, officeConfig(r)); rowByOrg.set(r.organisationId, r); }
     else global = officeConfig(r);
   }
-  return { byOrg, defaultCfg: global || officeConfig(DEFAULT_SETTINGS) };
+  const overriding = await prisma.group.findMany({
+    where: { OR: [{ officeStart: { not: null } }, { officeEnd: { not: null } }, { workingDays: { not: null } }] },
+    select: { id: true, organisationId: true, officeStart: true, officeEnd: true, workingDays: true },
+  });
+  const byGroup = new Map();
+  for (const g of overriding) byGroup.set(g.id, officeConfig(applyGroupOverrides(rowByOrg.get(g.organisationId), g)));
+  return { byOrg, byGroup, defaultCfg: global || officeConfig(DEFAULT_SETTINGS) };
 }
 
 function parseHHMM(value, fallbackMin) {
@@ -309,7 +346,7 @@ export async function runMonitoringRollup() {
   const windowStart = dateOnly(new Date());
   windowStart.setUTCDate(windowStart.getUTCDate() - (ROLLUP_WINDOW_DAYS - 1));
 
-  const { byOrg, defaultCfg } = await loadOrgConfigs();
+  const { byOrg, byGroup, defaultCfg } = await loadOrgConfigs();
 
   const events = await prisma.activityEvent.findMany({
     where: { startTime: { gte: windowStart } },
@@ -324,8 +361,9 @@ export async function runMonitoringRollup() {
   });
   const metaByEmp = new Map(employees.map((e) => [e.id, e]));
   const cfgForEmp = (employeeId) => {
-    const orgId = metaByEmp.get(employeeId)?.organisationId;
-    return (orgId && byOrg.get(orgId)) || defaultCfg;
+    const meta = metaByEmp.get(employeeId);
+    if (meta?.groupId && byGroup.has(meta.groupId)) return byGroup.get(meta.groupId);
+    return (meta?.organisationId && byOrg.get(meta.organisationId)) || defaultCfg;
   };
 
   // Resolve category/weight from the CURRENT catalogue keyed by process name,

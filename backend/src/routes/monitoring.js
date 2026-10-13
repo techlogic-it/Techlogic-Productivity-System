@@ -6,6 +6,7 @@ import path from 'path';
 import { authenticateAgent, generateAgentToken, hashAgentToken } from '../middleware/agent-auth.js';
 import { hashEnrollmentKey } from '../lib/enrollment.js';
 import { putScreenshot, screenshotsConfigured } from '../lib/screenshots.js';
+import { effectiveScreenshotsEnabled } from '../lib/monitoring-rollup.js';
 import prisma from '../prisma.js';
 
 const router = Router();
@@ -123,9 +124,22 @@ async function policyForDevice(device) {
       select: { idleThresholdSec: true, screenshotsEnabled: true, screenshotIntervalSec: true, workTrackerEnabled: true },
     });
     if (setting?.idleThresholdSec != null) policy.idleThresholdSec = setting.idleThresholdSec;
-    // Screenshots require both the company opting in AND R2 actually configured
+    // A device is "whose" team is its owner's, else its most recently active
+    // employee's. (Brand-new devices have no employee yet, so they get the
+    // company default until the agent next fetches its config.) The upload
+    // endpoint re-checks per employee, so this only decides whether to bother
+    // capturing — a shared PC can't leak a screenshot of a team that opted out.
+    const person = await prisma.monitoredEmployee.findFirst({
+      where: device.ownerEmployeeId ? { id: device.ownerEmployeeId } : { primaryDeviceId: device.id, isActive: true },
+      orderBy: { updatedAt: 'desc' },
+      select: { groupId: true },
+    });
+    const team = person?.groupId
+      ? await prisma.group.findUnique({ where: { id: person.groupId }, select: { screenshotsEnabled: true } })
+      : null;
+    // Screenshots require the company/team opting in AND R2 actually configured
     // on this deployment — never tell an agent to capture into a void.
-    policy.collectScreenshots = !!setting?.screenshotsEnabled && screenshotsConfigured();
+    policy.collectScreenshots = effectiveScreenshotsEnabled(setting, team) && screenshotsConfigured();
     if (setting?.screenshotIntervalSec) policy.screenshotIntervalSec = setting.screenshotIntervalSec;
     // Work-tracker widget: purely opt-in, no external dependency to gate on.
     policy.workTrackerEnabled = !!setting?.workTrackerEnabled;
@@ -326,7 +340,11 @@ router.post('/screenshot', authenticateAgent, asyncHandler(async (req, res) => {
     where: { organisationId: device.organisationId },
     select: { screenshotsEnabled: true },
   });
-  if (!setting?.screenshotsEnabled) return res.status(403).json({ error: 'Screenshots are not enabled for this company' });
+  // Cheap early exit: company is off and no team has opted in individually.
+  if (!setting?.screenshotsEnabled) {
+    const optedIn = await prisma.group.count({ where: { organisationId: device.organisationId, screenshotsEnabled: true } });
+    if (optedIn === 0) return res.status(403).json({ error: 'Screenshots are not enabled for this company' });
+  }
 
   const { employee, capturedAt, imageBase64 } = req.body || {};
   const localKey = employee?.localAccountKey;
@@ -339,6 +357,14 @@ router.post('/screenshot', authenticateAgent, asyncHandler(async (req, res) => {
 
   const emp = await resolveEmployee(device, employee, localKey);
   if (!emp) return res.json({ stored: false, notMonitored: true }); // over seat limit / removed user
+
+  // The person's own team has the final say (on, off, or inherit the company).
+  const team = emp.groupId
+    ? await prisma.group.findUnique({ where: { id: emp.groupId }, select: { screenshotsEnabled: true } })
+    : null;
+  if (!effectiveScreenshotsEnabled(setting, team)) {
+    return res.status(403).json({ error: 'Screenshots are not enabled for this person\'s team' });
+  }
 
   const when = capturedAt ? new Date(capturedAt) : new Date();
   const key = `${device.organisationId}/${emp.id}/${when.getTime()}-${device.id}.jpg`;
