@@ -139,7 +139,7 @@ internal static class Program
         {
             enrollmentKey = cfg.EnrollmentKey,
             deviceName = id.DeviceName,
-            agentVersion = "win-0.8.0",
+            agentVersion = "win-0.8.1",
         });
         using var res = await Http.PostAsync($"{cfg.ServerUrl}/api/monitoring/enroll", Json(body));
         var text = await res.Content.ReadAsStringAsync();
@@ -244,7 +244,7 @@ internal sealed class Agent
         if (!string.IsNullOrEmpty(_cfg.ClaimCode) && !_state.Claimed)
             employee["claimCode"] = _cfg.ClaimCode;
 
-        var body = JsonSerializer.Serialize(new { employee, events = batch, sessionEvents = Array.Empty<object>(), agentVersion = "win-0.8.0" });
+        var body = JsonSerializer.Serialize(new { employee, events = batch, sessionEvents = Array.Empty<object>(), agentVersion = "win-0.8.1" });
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, $"{_cfg.ServerUrl}/api/monitoring/ingest") { Content = Program.Json(body) };
@@ -394,7 +394,7 @@ internal static class Capture
     // Captures the full virtual desktop (all monitors), downscaled + JPEG-encoded
     // to keep uploads small. Returns null on any failure (e.g. no desktop session,
     // locked workstation) — screenshots are best-effort, never worth crashing over.
-    public static byte[]? CaptureScreenJpeg(int jpegQuality = 45, int maxWidth = 1600)
+    public static byte[]? CaptureScreenJpeg(int jpegQuality = 72, int maxWidth = 2560)
     {
         try
         {
@@ -413,7 +413,16 @@ internal static class Capture
             if (w > maxWidth)
             {
                 var newH = (int)((long)h * maxWidth / w);
-                resized = new Bitmap(full, new Size(maxWidth, Math.Max(1, newH)));
+                // new Bitmap(src, size) uses low-quality scaling that smears small text;
+                // bicubic keeps UI text legible after the downscale.
+                resized = new Bitmap(maxWidth, Math.Max(1, newH), PixelFormat.Format24bppRgb);
+                using (var rg = Graphics.FromImage(resized))
+                {
+                    rg.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    rg.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                    rg.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                    rg.DrawImage(full, 0, 0, maxWidth, resized.Height);
+                }
                 toEncode = resized;
             }
             try
