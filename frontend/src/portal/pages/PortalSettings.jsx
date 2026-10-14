@@ -240,6 +240,14 @@ export default function PortalSettings() {
               ⬇ Download employee monitoring policy template (.docx)
             </a>
             <p className="text-xs text-gray-400 -mt-3 mb-4">Have staff read and sign this before turning screenshots on — edit the [placeholders] for your company first.</p>
+            {s.screenshotStorage?.mode === 'custom' && (
+              <p className="text-xs text-gray-500 mb-3">Your screenshots are stored in your own bucket (<span className="font-mono">{s.screenshotStorage.bucket}</span>), not with Techlogic.</p>
+            )}
+            {s.screenshotStorage?.lastError && (
+              <div className="mb-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2">
+                Screenshots are not being saved: your storage rejected the latest upload ({s.screenshotStorage.lastError}). Please contact Techlogic support.
+              </div>
+            )}
             {!s.screenshotsAvailable ? (
               <p className="text-sm text-gray-500">Screenshot storage isn't set up on this server yet — ask your provider to configure it before you can turn this on.</p>
             ) : (

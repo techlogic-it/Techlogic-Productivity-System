@@ -63,6 +63,41 @@ model Organisation {
   clients        Client[]
   taskTypes      TaskType[]
   workSessions   WorkSession[]
+  storages       OrgStorage[]
+}
+
+// A company's OWN S3-compatible bucket for screenshots, used instead of the
+// platform's shared R2 bucket. Set up by provider admins only (never company
+// admins). At most one row per company is `active`; when the location (endpoint
+// or bucket) changes a new row is created and the old one deactivated rather
+// than edited, because screenshots already taken still live in the old bucket
+// and are found through their own storageId until the retention sweep removes
+// them. The secret is AES-256-GCM encrypted (same scheme as enrolment keys).
+model OrgStorage {
+  id             String       @id @default(uuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  active         Boolean      @default(true)
+  endpoint       String // https origin, e.g. https://<account>.r2.cloudflarestorage.com
+  region         String       @default("auto") // R2 = "auto"; AWS = e.g. "eu-west-2"
+  bucket         String
+  accessKeyId    String
+  secretCipher   String
+  forcePathStyle Boolean      @default(false) // MinIO and some S3-compatibles need this
+  // true = the company manages deletion in its own bucket (e.g. a lifecycle rule
+  // or a longer retention): our sweep still removes the portal rows after the
+  // retention window but leaves the image objects alone.
+  retentionManagedByCustomer Boolean @default(false)
+  // Health, so a broken key surfaces instead of screenshots silently vanishing.
+  lastOkAt     DateTime?
+  lastError    String?
+  lastErrorAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  screenshots MonitoredScreenshot[]
+
+  @@index([organisationId, active])
 }
 
 // Which companies a scoped provider user (PROVIDER_SUPPORT / PROVIDER_VIEWER) may
@@ -264,7 +299,10 @@ model MonitoredScreenshot {
   employee       MonitoredEmployee  @relation(fields: [employeeId], references: [id])
   deviceId       String?
   capturedAt     DateTime
-  storageKey     String             @unique // R2 object key
+  storageKey     String             @unique // object key within the bucket
+  // null = the platform's shared bucket; otherwise the company's own bucket.
+  storageId      String?
+  storage        OrgStorage?        @relation(fields: [storageId], references: [id])
   createdAt      DateTime           @default(now())
 
   @@index([employeeId, capturedAt])

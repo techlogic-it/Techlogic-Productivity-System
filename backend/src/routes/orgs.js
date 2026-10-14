@@ -19,6 +19,15 @@ import {
   encryptEnrollmentKey,
   decryptEnrollmentKey,
 } from '../lib/enrollment.js';
+import {
+  activeStorageFor,
+  storageSummary,
+  saveOrgStorage,
+  clearOrgStorage,
+  testStorageConfig,
+  platformConfigured,
+  purgeOrgScreenshots,
+} from '../lib/screenshots.js';
 
 const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 const ASSIGNABLE_ROLES = ['ORG_ADMIN', 'MANAGER', 'GROUP_ADMIN', 'VIEWER'];
@@ -271,8 +280,17 @@ router.delete(
     const empIds = (await prisma.monitoredEmployee.findMany({ where: { organisationId: id }, select: { id: true } })).map((e) => e.id);
     const userIds = (await prisma.portalUser.findMany({ where: { organisationId: id }, select: { id: true } })).map((u) => u.id);
 
+    // Remove the screenshot images from storage first (best effort — a company's
+    // own bucket may be unreachable; those objects are logged, not blocking).
+    const screenshotsRemoved = await purgeOrgScreenshots(id);
+
     // Delete children before parents to satisfy FK constraints.
     await prisma.$transaction([
+      prisma.monitoredScreenshot.deleteMany({ where: { organisationId: id } }),
+      prisma.orgStorage.deleteMany({ where: { organisationId: id } }),
+      prisma.workSession.deleteMany({ where: { organisationId: id } }),
+      prisma.client.deleteMany({ where: { organisationId: id } }),
+      prisma.taskType.deleteMany({ where: { organisationId: id } }),
       prisma.activityEvent.deleteMany({ where: { OR: [{ deviceId: { in: deviceIds } }, { employeeId: { in: empIds } }] } }),
       prisma.sessionEvent.deleteMany({ where: { OR: [{ deviceId: { in: deviceIds } }, { employeeId: { in: empIds } }] } }),
       prisma.activitySummary.deleteMany({ where: { OR: [{ employeeId: { in: empIds } }, { organisationId: id }] } }),
@@ -289,7 +307,69 @@ router.delete(
       prisma.group.deleteMany({ where: { organisationId: id } }),
       prisma.organisation.delete({ where: { id } }),
     ]);
-    res.json({ ok: true, deleted: { name: org.name, devices: deviceIds.length, employees: empIds.length, users: userIds.length } });
+    res.json({ ok: true, deleted: { name: org.name, devices: deviceIds.length, employees: empIds.length, users: userIds.length, screenshots: screenshotsRemoved } });
+  }),
+);
+
+// ── Screenshot storage (provider admins only) ───────────────────────────────
+// A company's own S3-compatible bucket, set up by us on the company's behalf —
+// never exposed to company admins, since it holds storage credentials.
+
+const platformStorageInfo = () => ({ platformAvailable: platformConfigured() });
+
+router.get(
+  '/organisations/:id/storage',
+  requirePortalRole('PROVIDER_ADMIN'),
+  asyncHandler(async (req, res) => {
+    const org = await prisma.organisation.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!org) return res.status(404).json({ error: 'Company not found' });
+    const row = await activeStorageFor(org.id);
+    res.json({ mode: row ? 'custom' : 'platform', storage: storageSummary(row), ...platformStorageInfo() });
+  }),
+);
+
+router.put(
+  '/organisations/:id/storage',
+  requirePortalRole('PROVIDER_ADMIN'),
+  asyncHandler(async (req, res) => {
+    const org = await prisma.organisation.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!org) return res.status(404).json({ error: 'Company not found' });
+    const out = await saveOrgStorage(org.id, req.body);
+    if (out.error) return res.status(out.status).json({ error: out.error, test: out.test });
+    res.json({ mode: 'custom', storage: out.storage, test: out.test, ...platformStorageInfo() });
+  }),
+);
+
+// Re-run the connection test against what's saved (e.g. after the company says
+// they rotated a key, or when the health warning shows).
+router.post(
+  '/organisations/:id/storage/test',
+  requirePortalRole('PROVIDER_ADMIN'),
+  asyncHandler(async (req, res) => {
+    const row = await activeStorageFor(req.params.id);
+    if (!row) return res.status(404).json({ error: 'This company uses the platform storage — there is nothing to test.' });
+    const secret = decryptEnrollmentKey(row.secretCipher);
+    if (!secret) return res.status(400).json({ error: 'The stored secret can no longer be read. Please enter the secret access key again.' });
+    const test = await testStorageConfig({ ...row, secretAccessKey: secret });
+    const ok = test.write.ok && test.read.ok && (row.retentionManagedByCustomer || test.delete.ok);
+    await prisma.orgStorage.update({
+      where: { id: row.id },
+      data: ok
+        ? { lastOkAt: new Date(), lastError: null, lastErrorAt: null }
+        : { lastError: [test.write, test.read, test.delete].find((s) => !s.ok)?.error?.slice(0, 300) || 'Connection test failed', lastErrorAt: new Date() },
+    });
+    res.json({ ok, test, storage: storageSummary(await activeStorageFor(req.params.id)) });
+  }),
+);
+
+// Back to the platform bucket. Screenshots already taken stay where they are and
+// remain viewable until the retention sweep removes them.
+router.delete(
+  '/organisations/:id/storage',
+  requirePortalRole('PROVIDER_ADMIN'),
+  asyncHandler(async (req, res) => {
+    const changed = await clearOrgStorage(req.params.id);
+    res.json({ mode: 'platform', changed, ...platformStorageInfo() });
   }),
 );
 

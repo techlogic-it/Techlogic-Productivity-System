@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import portalApi from '../portalApi';
 import { usePortalAuth, isProvider as isProviderRole } from '../PortalAuthContext';
+import StorageAdmin from '../components/StorageAdmin';
 
 function Section({ title, children, action }) {
   return (
@@ -587,6 +588,12 @@ export default function PortalAdmin() {
           </div>
         )}
       </Section>
+
+      {isProviderAdmin && orgId && (
+        <Section title="Screenshot storage">
+          <StorageAdmin orgId={orgId} />
+        </Section>
+      )}
 
       {editUser && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4" onClick={() => setEditUser(null)}>

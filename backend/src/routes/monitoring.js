@@ -5,7 +5,7 @@ import path from 'path';
 
 import { authenticateAgent, generateAgentToken, hashAgentToken } from '../middleware/agent-auth.js';
 import { hashEnrollmentKey } from '../lib/enrollment.js';
-import { putScreenshot, screenshotsConfigured } from '../lib/screenshots.js';
+import { putScreenshot, screenshotsAvailableFor, resolveUploadTarget, recordStorageHealth } from '../lib/screenshots.js';
 import { effectiveScreenshotsEnabled } from '../lib/monitoring-rollup.js';
 import prisma from '../prisma.js';
 
@@ -139,7 +139,7 @@ async function policyForDevice(device) {
       : null;
     // Screenshots require the company/team opting in AND R2 actually configured
     // on this deployment — never tell an agent to capture into a void.
-    policy.collectScreenshots = effectiveScreenshotsEnabled(setting, team) && screenshotsConfigured();
+    policy.collectScreenshots = effectiveScreenshotsEnabled(setting, team) && await screenshotsAvailableFor(device.organisationId);
     if (setting?.screenshotIntervalSec) policy.screenshotIntervalSec = setting.screenshotIntervalSec;
     // Work-tracker widget: purely opt-in, no external dependency to gate on.
     policy.workTrackerEnabled = !!setting?.workTrackerEnabled;
@@ -334,7 +334,7 @@ router.post('/ingest', authenticateAgent, asyncHandler(async (req, res) => {
 router.post('/screenshot', authenticateAgent, asyncHandler(async (req, res) => {
   const device = req.device;
   if (!device.organisationId) return res.status(403).json({ error: 'Screenshots are a product-build feature' });
-  if (!screenshotsConfigured()) return res.status(503).json({ error: 'Screenshot storage is not configured on this server' });
+  if (!(await screenshotsAvailableFor(device.organisationId))) return res.status(503).json({ error: 'Screenshot storage is not configured for this company' });
 
   const setting = await prisma.monitoringSetting.findUnique({
     where: { organisationId: device.organisationId },
@@ -368,10 +368,23 @@ router.post('/screenshot', authenticateAgent, asyncHandler(async (req, res) => {
 
   const when = capturedAt ? new Date(capturedAt) : new Date();
   const key = `${device.organisationId}/${emp.id}/${when.getTime()}-${device.id}.jpg`;
-  await putScreenshot(key, buffer);
+  // Write to the company's own bucket if it has one, else the platform's. A
+  // company with its own bucket never falls back to ours when theirs is broken.
+  let target;
+  try { target = await resolveUploadTarget(device.organisationId); }
+  catch (e) { console.error(`[screenshot] storage unusable for org ${device.organisationId}: ${e.message}`); return res.status(503).json({ error: 'Screenshot storage is misconfigured for this company' }); }
+  if (!target) return res.status(503).json({ error: 'Screenshot storage is not configured for this company' });
+  try {
+    await putScreenshot(target, key, buffer);
+    await recordStorageHealth(target.row, null);
+  } catch (e) {
+    await recordStorageHealth(target.row, e);
+    console.error(`[screenshot] upload failed for org ${device.organisationId}: ${e.message}`);
+    return res.status(502).json({ error: 'Could not store the screenshot' });
+  }
 
   const row = await prisma.monitoredScreenshot.create({
-    data: { organisationId: device.organisationId, employeeId: emp.id, deviceId: device.id, capturedAt: when, storageKey: key },
+    data: { organisationId: device.organisationId, employeeId: emp.id, deviceId: device.id, capturedAt: when, storageKey: key, storageId: target.storageId },
   });
 
   res.status(201).json({ stored: true, id: row.id });

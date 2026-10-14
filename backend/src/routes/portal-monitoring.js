@@ -17,7 +17,7 @@ import {
 } from '../lib/monitoring-rollup.js';
 import { generateAgentToken, hashAgentToken } from '../middleware/agent-auth.js';
 import { sendDigest, emailConfigured } from '../lib/digests.js';
-import { signedScreenshotUrl, screenshotsConfigured } from '../lib/screenshots.js';
+import { signedScreenshotUrls, screenshotsAvailableFor, storageStatusFor } from '../lib/screenshots.js';
 
 const router = Router();
 router.use(authenticatePortal);
@@ -518,9 +518,8 @@ router.get(
       orderBy: { capturedAt: 'asc' },
       take: 500,
     });
-    const out = await Promise.all(
-      shots.map(async (s) => ({ id: s.id, capturedAt: s.capturedAt, url: await signedScreenshotUrl(s.storageKey) })),
-    );
+    const urls = await signedScreenshotUrls(shots);
+    const out = shots.map((s, i) => ({ id: s.id, capturedAt: s.capturedAt, url: urls[i] }));
 
     await logAccess(req.portalUser, 'VIEW_SCREENSHOTS', { targetEmployeeId: employeeId, meta: { date, count: out.length } });
     res.json(out);
@@ -745,8 +744,13 @@ function targetOrgId(req) {
 router.get(
   '/settings',
   asyncHandler(async (req, res) => {
-    const settings = await getMonitoringSettings(targetOrgId(req));
-    res.json({ ...settings, screenshotsAvailable: screenshotsConfigured() });
+    const orgId = targetOrgId(req);
+    const settings = await getMonitoringSettings(orgId);
+    res.json({
+      ...settings,
+      screenshotsAvailable: await screenshotsAvailableFor(orgId),
+      screenshotStorage: await storageStatusFor(orgId), // where this company's screenshots are kept
+    });
   }),
 );
 
@@ -765,7 +769,7 @@ router.put(
     const hhmm = /^([01]?\d|2[0-3]):[0-5]\d$/;
     const data = {};
     if (screenshotsEnabled !== undefined) {
-      if (screenshotsEnabled && !screenshotsConfigured()) {
+      if (screenshotsEnabled && !(await screenshotsAvailableFor(orgId))) {
         return res.status(400).json({ error: 'Screenshot storage is not configured on this server yet — ask your provider to set it up first.' });
       }
       data.screenshotsEnabled = !!screenshotsEnabled;
@@ -854,7 +858,7 @@ router.put(
     }
 
     if (screenshotsEnabled !== undefined) {
-      if (screenshotsEnabled === true && !screenshotsConfigured()) {
+      if (screenshotsEnabled === true && !(await screenshotsAvailableFor(orgId))) {
         return res.status(400).json({ error: 'Screenshot storage is not configured on this server yet — ask your provider to set it up first.' });
       }
       data.screenshotsEnabled = screenshotsEnabled === null ? null : !!screenshotsEnabled;
