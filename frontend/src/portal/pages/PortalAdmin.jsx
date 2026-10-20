@@ -273,6 +273,12 @@ export default function PortalAdmin() {
   };
   const downloadInstaller = () => downloadBat(`/orgs/organisations/${orgId}/installer.bat`, 'install-techlogic-productivity.bat');
   const downloadUninstaller = () => downloadBat(`/orgs/organisations/${orgId}/uninstaller.bat`, 'uninstall-techlogic-productivity.bat');
+  // Fallback for machines whose antivirus blocks the .bat (it downloads an exe and
+  // writes a Run-key, which some AV heuristics flag as a dropper). Same agent binary,
+  // same enrolment key — the user places it themselves and runs it from a command
+  // prompt, so there is no script for AV to flag. No autostart; see the note in the UI.
+  const agentExeUrl = `${window.location.origin}/api/monitoring/agent-download`;
+  const manualRunCommand = (key) => `ProductivityAgent.exe --server ${window.location.origin} --key ${key}`;
   const setDefaultGroup = async (groupId) => {
     const { data } = await portalApi.put(`/orgs/organisations/${orgId}/enrollment-key`, { defaultGroupId: groupId || null });
     setCompanyKey(data);
@@ -578,6 +584,20 @@ export default function PortalAdmin() {
                 <button onClick={downloadInstaller} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 text-sm font-medium">Download installer (.bat)</button>
                 <button onClick={downloadUninstaller} className="rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 text-sm">Download uninstaller (.bat)</button>
               </div>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="text-xs text-gray-600 mb-2">
+                <span className="font-medium text-gray-700">Antivirus blocking the .bat?</span> Some antivirus tools (including Norton) flag the installer because it downloads a program and sets it to start automatically — that pattern looks like a dropper even though it isn't. If so, try the agent program (.exe) directly: it does the same thing, but the user runs it themselves from a command prompt, so there's no script for antivirus to flag.
+              </div>
+              <div className="flex gap-2 mb-2">
+                <a href={agentExeUrl} className="rounded-lg border border-gray-300 hover:bg-gray-100 text-gray-700 px-3 py-1.5 text-xs font-medium bg-white">Download agent (.exe)</a>
+              </div>
+              <div className="text-xs text-gray-500 mb-1">Then open Command Prompt in the folder it was saved to and run:</div>
+              <div className="flex gap-2">
+                <code className="flex-1 rounded-lg bg-white border border-gray-200 px-3 py-2 text-xs font-mono break-all">{manualRunCommand(companyKey.enrollmentKey)}</code>
+                <button onClick={() => copy(manualRunCommand(companyKey.enrollmentKey), 'exe-cmd')} className="shrink-0 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 text-xs">{copied === 'exe-cmd' ? 'Copied' : 'Copy'}</button>
+              </div>
+              <div className="text-xs text-gray-400 mt-2">This way doesn't autostart at login or add a Run entry — the user (or their IT) needs to re-run that command, or set up their own shortcut/scheduled task, each time. Once it's confirmed working, consider asking Norton to allow-list the installer instead (we can provide the signed file) so the one-click installer works going forward.</div>
             </div>
             {canManageSeats && (
               <div className="flex items-center gap-3 pt-1 border-t border-gray-100">
