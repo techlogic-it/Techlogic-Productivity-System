@@ -295,13 +295,20 @@ export default function PortalEmployee() {
             Screenshots <span className="font-normal text-gray-400">({screenshots.length})</span>
           </div>
           <div className="p-4 flex gap-3 overflow-x-auto">
-            {screenshots.map((s) => (
+            {screenshots.map((s) => (s.url ? (
               <a key={s.id} href={s.url} target="_blank" rel="noreferrer" title={fmtTime(s.capturedAt)}
                 className="shrink-0 block w-32 rounded-lg overflow-hidden border border-gray-200 hover:border-teal-400 transition-colors">
                 <img src={s.url} alt={fmtTime(s.capturedAt)} className="w-32 h-20 object-cover bg-gray-100" loading="lazy" />
                 <div className="text-[11px] text-gray-500 text-center py-1 bg-gray-50">{fmtTime(s.capturedAt)}</div>
               </a>
-            ))}
+            ) : (
+              // Provider (Techlogic) staff: shown that a screenshot exists, never its content.
+              <div key={s.id} title="Captured — Techlogic staff don't view client screenshots"
+                className="shrink-0 w-32 rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+                <div className="w-32 h-20 flex items-center justify-center text-gray-300 text-2xl">🔒</div>
+                <div className="text-[11px] text-gray-500 text-center py-1 bg-gray-100">{fmtTime(s.capturedAt)}</div>
+              </div>
+            )))}
           </div>
         </div>
       )}
@@ -328,10 +335,13 @@ export default function PortalEmployee() {
                         <div className="flex items-baseline gap-2">
                           <span className="text-xs text-gray-400 tabular-nums shrink-0">{fmtTime(e.startTime)}</span>
                           <span className={`text-sm font-medium truncate ${e.isIdle ? 'text-gray-400' : 'text-gray-800'}`}>{e.isIdle ? 'Idle' : (e.resolvedDisplayName || e.processName)}</span>
-                          {shot && (
+                          {shot && (shot.url ? (
                             <a href={shot.url} target="_blank" rel="noreferrer" title={`Screenshot near ${fmtTime(shot.capturedAt)}`}
                               className="shrink-0 text-gray-300 hover:text-teal-600" onClick={(ev) => ev.stopPropagation()}>📷</a>
-                          )}
+                          ) : (
+                            <span title={`Screenshot captured near ${fmtTime(shot.capturedAt)} — hidden from Techlogic staff`}
+                              className="shrink-0 text-gray-200">🔒</span>
+                          ))}
                         </div>
                         {!e.isIdle && e.windowTitle && <div className="text-xs text-gray-400 truncate">{e.windowTitle}</div>}
                       </div>

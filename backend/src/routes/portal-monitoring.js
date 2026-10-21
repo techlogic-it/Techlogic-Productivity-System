@@ -3,7 +3,7 @@ import { Router } from 'express';
 import asyncHandler from 'express-async-handler';
 
 import prisma from '../prisma.js';
-import { authenticatePortal, requirePortalRole, scopeFor, blockReadOnlyProvider } from '../middleware/portal-auth.js';
+import { authenticatePortal, requirePortalRole, scopeFor, blockReadOnlyProvider, isProviderRole } from '../middleware/portal-auth.js';
 import {
   dateOnly,
   weightForCategory,
@@ -494,6 +494,13 @@ router.get(
 // short-lived signed URLs (never a public bucket). Viewing screenshots is
 // logged just like the timeline, since it's the most sensitive read this
 // product offers.
+//
+// Techlogic provider staff (PROVIDER_ADMIN/SUPPORT/VIEWER) manage every
+// company's account but are not the client's management chain — they should
+// be able to see THAT a screenshot was captured (the thumbnail slot, the
+// time) without being able to open the client's actual screen content. So
+// for provider roles we return the metadata only and never mint a signed
+// URL; the portal renders those as a locked placeholder instead of an image.
 router.get(
   '/screenshots',
   asyncHandler(async (req, res) => {
@@ -518,10 +525,12 @@ router.get(
       orderBy: { capturedAt: 'asc' },
       take: 500,
     });
-    const urls = await signedScreenshotUrls(shots);
+
+    const providerCaller = isProviderRole(req.portalUser.role);
+    const urls = providerCaller ? shots.map(() => null) : await signedScreenshotUrls(shots);
     const out = shots.map((s, i) => ({ id: s.id, capturedAt: s.capturedAt, url: urls[i] }));
 
-    await logAccess(req.portalUser, 'VIEW_SCREENSHOTS', { targetEmployeeId: employeeId, meta: { date, count: out.length } });
+    await logAccess(req.portalUser, 'VIEW_SCREENSHOTS', { targetEmployeeId: employeeId, meta: { date, count: out.length, imagesVisible: !providerCaller } });
     res.json(out);
   }),
 );
