@@ -7,7 +7,14 @@ import prisma from '../prisma.js';
 // password (no Microsoft Entra). Distinct from middleware/auth.js (Entra, the
 // internal MSP app) and middleware/agent-auth.js (per-device agent tokens).
 
-const JWT_SECRET = process.env.PORTAL_JWT_SECRET || 'dev-portal-secret-change-me';
+// No hardcoded fallback in production — a secret baked into public source is no
+// secret at all. Outside production (local dev, where PORTAL_JWT_SECRET is often
+// left unset) a fixed dev value keeps `npm run dev` working without extra setup.
+const JWT_SECRET = process.env.PORTAL_JWT_SECRET
+  || (process.env.NODE_ENV !== 'production' ? 'dev-portal-secret-change-me' : null);
+if (!JWT_SECRET) {
+  throw new Error('PORTAL_JWT_SECRET must be set in production — refusing to start with no login-signing secret.');
+}
 const TOKEN_TTL = process.env.PORTAL_JWT_TTL || '12h';
 
 export function hashPassword(plain) {

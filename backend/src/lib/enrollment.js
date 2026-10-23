@@ -13,14 +13,21 @@ export function hashEnrollmentKey(key) {
 }
 
 // Reversible at-rest encryption for the company enrolment key, so the portal can
-// re-display it (the installer carries it). AES-256-GCM; the 32-byte key is
-// derived from ENROLLMENT_KEY_SECRET (falls back to PORTAL_JWT_SECRET in dev).
+// re-display it (the installer carries it), and for customer storage secrets
+// (lib/screenshots.js reuses encrypt/decryptEnrollmentKey for those). AES-256-GCM;
+// the 32-byte key is derived from ENROLLMENT_KEY_SECRET. In production this must
+// be its own secret — falling back to PORTAL_JWT_SECRET would mean leaking either
+// one leaks both — and there is no hardcoded fallback, since a secret baked into
+// public source is no secret at all. Outside production a fixed dev value keeps
+// `npm run dev` working without extra setup.
 // Format: base64(iv[12] || authTag[16] || ciphertext). hashEnrollmentKey stays
 // the lookup index — enrolment never decrypts, only the admin reveal does.
-const ENC_KEY = crypto
-  .createHash('sha256')
-  .update(process.env.ENROLLMENT_KEY_SECRET || process.env.PORTAL_JWT_SECRET || 'dev-insecure-enrollment-secret')
-  .digest();
+const ENROLLMENT_SECRET = process.env.ENROLLMENT_KEY_SECRET
+  || (process.env.NODE_ENV !== 'production' ? (process.env.PORTAL_JWT_SECRET || 'dev-insecure-enrollment-secret') : null);
+if (!ENROLLMENT_SECRET) {
+  throw new Error('ENROLLMENT_KEY_SECRET must be set in production — refusing to start with no encryption secret.');
+}
+const ENC_KEY = crypto.createHash('sha256').update(ENROLLMENT_SECRET).digest();
 
 export function encryptEnrollmentKey(plain) {
   const iv = crypto.randomBytes(12);
