@@ -19,6 +19,34 @@ function Kpi({ label, value, sub }) {
   );
 }
 
+// Winner = most productive HOURS (not highest %), among people who've tracked
+// at least `minTrackedSec` — so a 10-minute perfect score can't beat someone
+// who put in a full, mostly-productive day. Simple and explainable on purpose:
+// no opaque weighting a manager (or the employee) can't double-check by eye.
+function pickTopPerformer(employees, minTrackedSec) {
+  const eligible = (employees || []).filter((e) => (e.activeSec || 0) + (e.idleSec || 0) >= minTrackedSec);
+  if (eligible.length === 0) return null;
+  return [...eligible].sort((a, b) => b.productiveSec - a.productiveSec || b.productivityPct - a.productivityPct)[0];
+}
+
+function EmployeeHighlight({ title, winner, onOpen }) {
+  return (
+    <div className="bg-gradient-to-br from-amber-50 to-white rounded-xl border border-amber-200 p-4">
+      <div className="text-xs uppercase tracking-wide text-amber-700 font-semibold mb-2">{title}</div>
+      {!winner ? (
+        <div className="text-sm text-gray-400">Not enough tracked activity yet.</div>
+      ) : (
+        <div onClick={() => onOpen(winner.employeeId)} className="cursor-pointer">
+          <div className="text-lg font-bold text-gray-800">{winner.displayName}</div>
+          <div className="text-sm text-gray-600 mt-0.5">
+            {fmtDur(winner.productiveSec)} productive · <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${pctColour(winner.productivityPct)}`}>{winner.productivityPct}%</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Date range for a preset.
 function rangeFor(preset) {
   const now = new Date();
@@ -89,6 +117,30 @@ function CompanyDashboard({ providerOrgId, providerOrgName }) {
     // eslint-disable-next-line
   }, [fromDate, toDate, groupId]);
 
+  // Employee of the Day/Week — always today / this-week-to-date, independent
+  // of whatever range the rest of the dashboard is showing, so it stays a
+  // fixed, recognisable highlight rather than shifting with the date filter.
+  const [dayWinner, setDayWinner] = useState(null);
+  const [weekWinner, setWeekWinner] = useState(null);
+  useEffect(() => {
+    if (!reportOrgId) return;
+    const today = fmtDateInput(new Date());
+    const mon = new Date(); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+    const weekStart = fmtDateInput(mon);
+    const qFor = (f, t) => {
+      const p = new URLSearchParams({ fromDate: f, toDate: t });
+      if (groupId) p.set('groupId', groupId);
+      if (providerOrgId) p.set('organisationId', providerOrgId);
+      return p.toString();
+    };
+    portalApi.get(`/monitoring/summary?${qFor(today, today)}`)
+      .then((r) => setDayWinner(pickTopPerformer(r.data?.employees, 60 * 60))) // ≥1h tracked today
+      .catch(() => setDayWinner(null));
+    portalApi.get(`/monitoring/summary?${qFor(weekStart, today)}`)
+      .then((r) => setWeekWinner(pickTopPerformer(r.data?.employees, 5 * 60 * 60))) // ≥5h tracked this week
+      .catch(() => setWeekWinner(null));
+  }, [reportOrgId, groupId, providerOrgId]);
+
   const t = data.total || {};
 
   const exportCsv = async () => {
@@ -133,6 +185,11 @@ function CompanyDashboard({ providerOrgId, providerOrgName }) {
       )}
 
       {error && <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+        <EmployeeHighlight title="🏆 Employee of the Day" winner={dayWinner} onOpen={(id) => navigate(`/portal/employees/${id}`)} />
+        <EmployeeHighlight title="🏆 Employee of the Week" winner={weekWinner} onOpen={(id) => navigate(`/portal/employees/${id}`)} />
+      </div>
 
       {(() => { const tracked = (t.activeSec || 0) + (t.idleSec || 0); return (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
