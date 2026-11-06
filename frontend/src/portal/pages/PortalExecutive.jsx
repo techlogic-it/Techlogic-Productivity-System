@@ -35,10 +35,11 @@ function Card({ title, subtitle, children, className = '' }) {
 const fmtLate = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`);
 const fmtDay = (s) => new Date(`${s}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-export default function PortalExecutive() {
+export default function PortalExecutive({ forTeam = false }) {
   const navigate = useNavigate();
-  const { user, org } = usePortalAuth();
+  const { user, org, group } = usePortalAuth();
   const isProvider = isProviderRole(user.role);
+  const scopeLabel = forTeam && group?.name ? `${group.name} team` : 'Company';
 
   const [mode, setMode] = useState('company'); // 'company' | 'employee'
   const [companyId, setCompanyId] = useState('');
@@ -107,10 +108,11 @@ export default function PortalExecutive() {
   // title here so a printed/PDF'd report is headed with the actual company
   // (and employee, in that mode) it's for, not "Techlogic Productivity System".
   const companyName = isProvider ? companies.find((c) => c.id === companyId)?.name : org?.name;
+  const reportLabel = forTeam ? 'Team Summary' : 'Executive Summary';
   useEffect(() => {
     if (!companyName) return;
-    document.title = mode === 'employee' && employeeId ? `${companyName} — ${employeeName}` : `${companyName} — Executive Summary`;
-  }, [companyName, mode, employeeId, employeeName]);
+    document.title = mode === 'employee' && employeeId ? `${companyName} — ${employeeName}` : `${companyName} — ${reportLabel}`;
+  }, [companyName, mode, employeeId, employeeName, reportLabel]);
 
   const performers = useMemo(() => {
     const ranked = [...(summary.employees || [])].filter((e) => (e.activeSec || 0) + (e.idleSec || 0) > 0).sort((a, b) => b.productivityPct - a.productivityPct);
@@ -141,7 +143,7 @@ export default function PortalExecutive() {
   return (
     <div className="max-w-5xl">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2 print:hidden">
-        <h1 className="text-xl font-bold text-gray-800">{mode === 'employee' && employeeId ? `${employeeName} — summary` : 'Executive summary'}</h1>
+        <h1 className="text-xl font-bold text-gray-800">{mode === 'employee' && employeeId ? `${employeeName} — summary` : reportLabel.replace('Summary', 'summary')}</h1>
         {reportOrgId && (mode === 'company' || employeeId) && (
           <button onClick={() => window.print()} className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 text-sm">
             Download PDF
@@ -151,7 +153,7 @@ export default function PortalExecutive() {
 
       <div className="flex items-center gap-2 text-sm flex-wrap mb-4 print:hidden">
         <div className="flex rounded-lg border border-gray-300 overflow-hidden">
-          <button onClick={() => setMode('company')} className={`px-3 py-1.5 ${mode === 'company' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Company</button>
+          <button onClick={() => setMode('company')} className={`px-3 py-1.5 ${mode === 'company' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{scopeLabel}</button>
           <button onClick={() => setMode('employee')} className={`px-3 py-1.5 ${mode === 'employee' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Employee</button>
         </div>
         {isProvider && (
@@ -272,6 +274,7 @@ export default function PortalExecutive() {
             </Card>
           </div>
 
+          {!forTeam && (
           <Card title="Department comparison" subtitle="productivity % of tracked time">
             {byDept.length === 0 ? <div className="p-6 text-gray-400 text-sm">No activity in this period.</div> : (
               <div className="p-4 space-y-2.5">
@@ -289,10 +292,11 @@ export default function PortalExecutive() {
               </div>
             )}
           </Card>
+          )}
           </>
           )}
 
-          <Card title="Top apps & sites" subtitle={mode === 'employee' ? employeeName : 'company-wide'}>
+          <Card title="Top apps & sites" subtitle={mode === 'employee' ? employeeName : (forTeam ? 'team-wide' : 'company-wide')}>
             <AppUsageBars apps={topApps} />
           </Card>
         </>

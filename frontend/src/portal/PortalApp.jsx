@@ -53,6 +53,10 @@ function Shell() {
         element={<RequireAuth minRole="MANAGER"><PortalLayout><PortalExecutive /></PortalLayout></RequireAuth>}
       />
       <Route
+        path="/portal/team-report"
+        element={<RequireAuth minRole="GROUP_ADMIN"><PortalLayout><PortalExecutive forTeam /></PortalLayout></RequireAuth>}
+      />
+      <Route
         path="/portal/devices"
         element={<RequireAuth minRole="MANAGER"><PortalLayout><PortalDevices /></PortalLayout></RequireAuth>}
       />
