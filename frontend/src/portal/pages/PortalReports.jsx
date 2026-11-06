@@ -2,7 +2,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import portalApi from '../portalApi';
 import { usePortalAuth, isProvider as isProviderRole } from '../PortalAuthContext';
-import { fmtDateInput } from '../portalUtils';
+import { fmtDateInput, fmtDur, pctColour } from '../portalUtils';
 
 const fmtDay = (s) => new Date(`${s}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
@@ -33,7 +33,7 @@ function fmtLastSeen(iso) {
 }
 function dateOnly(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
 
-const TABS = [['late', 'Late arrivals'], ['notSeen', 'Not seen']];
+const TABS = [['late', 'Late arrivals'], ['notSeen', 'Not seen'], ['productivity', 'Productivity']];
 
 export default function PortalReports() {
   const navigate = useNavigate();
@@ -55,6 +55,7 @@ export default function PortalReports() {
   const [groups, setGroups] = useState([]);
   const [rows, setRows] = useState([]);
   const [notSeenRows, setNotSeenRows] = useState([]);
+  const [productivityRows, setProductivityRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedId, setExpandedId] = useState(null);
@@ -83,9 +84,13 @@ export default function PortalReports() {
     const q = new URLSearchParams({ fromDate, toDate });
     if (groupId) q.set('groupId', groupId);
     if (isProvider && companyId) q.set('organisationId', companyId);
-    const endpoint = tab === 'late' ? '/monitoring/late-report' : '/monitoring/no-activity';
+    const endpoint = tab === 'late' ? '/monitoring/late-report' : tab === 'notSeen' ? '/monitoring/no-activity' : '/monitoring/summary';
     portalApi.get(`${endpoint}?${q.toString()}`)
-      .then((r) => (tab === 'late' ? setRows(r.data?.rows || []) : setNotSeenRows(r.data?.rows || [])))
+      .then((r) => {
+        if (tab === 'late') setRows(r.data?.rows || []);
+        else if (tab === 'notSeen') setNotSeenRows(r.data?.rows || []);
+        else setProductivityRows([...(r.data?.employees || [])].sort((a, b) => b.productiveSec - a.productiveSec));
+      })
       .catch((e) => setError(e.response?.data?.error || 'Failed to load'))
       .finally(() => setLoading(false));
   }, [tab, fromDate, toDate, groupId, companyId]);
@@ -134,7 +139,9 @@ export default function PortalReports() {
       <p className="text-sm text-gray-500 mb-4">
         {tab === 'late'
           ? "“Late” = the first activity of a working day starts after the company's office-start time. Non-working days and days with no activity are ignored."
-          : 'Working days in range with nothing logged at all — not even idle time. Could mean the person was off, or the agent on their PC has stopped reporting (blocked by antivirus, uninstalled, or the PC has been off). Check "Last seen" to tell the two apart.'}
+          : tab === 'notSeen'
+          ? 'Working days in range with nothing logged at all — not even idle time. Could mean the person was off, or the agent on their PC has stopped reporting (blocked by antivirus, uninstalled, or the PC has been off). Check "Last seen" to tell the two apart.'
+          : 'Active, productive and idle time totalled over the selected range, ranked by most productive time first. Click anyone to open their own page for the day-by-day detail.'}
       </p>
 
       {error && <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
@@ -205,7 +212,8 @@ export default function PortalReports() {
             </table>
           </div>
           )
-        ) : notSeenRows.length === 0 ? (
+        ) : tab === 'notSeen' ? (
+          notSeenRows.length === 0 ? (
           <div className="p-6 text-gray-400 text-sm">Everyone in scope was seen on every working day in this range.</div>
         ) : (
           <div className="overflow-x-auto">
@@ -252,6 +260,45 @@ export default function PortalReports() {
                   </Fragment>
                   );
                 })}
+              </tbody>
+            </table>
+          </div>
+          )
+        ) : productivityRows.length === 0 ? (
+          <div className="p-6 text-gray-400 text-sm">No activity in this range.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+                <tr>
+                  <th className="text-left font-medium px-3 py-2">Employee</th>
+                  <th className="text-right font-medium px-3 py-2">Active</th>
+                  <th className="text-right font-medium px-3 py-2">Productive</th>
+                  <th className="text-right font-medium px-3 py-2">Neutral</th>
+                  <th className="text-right font-medium px-3 py-2">Non-prod</th>
+                  <th className="text-right font-medium px-3 py-2">Idle</th>
+                  <th className="text-right font-medium px-3 py-2">Overtime</th>
+                  <th className="text-right font-medium px-3 py-2">Productivity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productivityRows.map((r) => (
+                  <tr key={r.employeeId} onClick={() => navigate(`/portal/employees/${r.employeeId}`)}
+                    className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer">
+                    <td className="px-3 py-2 font-medium text-gray-800">{r.displayName}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-gray-600">{fmtDur(r.activeSec)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-green-700">{fmtDur(r.productiveSec)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-gray-600">{fmtDur(r.neutralSec)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-red-600">{fmtDur(r.nonProductiveSec)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-gray-400">{fmtDur(r.idleSec)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-gray-600">
+                      {fmtDur(r.overtimeSec)}{r.overtimeSec > 0 && <div className="text-xs text-gray-400">{r.overtimePct ?? 0}% prod</div>}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${pctColour(r.productivityPct)}`}>{r.productivityPct}%</span>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
