@@ -14,6 +14,7 @@ import {
   officeConfigFor,
   localTimeInfo,
   aggregateHeatmapBuckets,
+  employeesWithNoActivity,
 } from '../lib/monitoring-rollup.js';
 import { generateAgentToken, hashAgentToken } from '../middleware/agent-auth.js';
 import { sendDigest, emailConfigured } from '../lib/digests.js';
@@ -215,6 +216,47 @@ router.get(
     }
     rows.sort((a, b) => b.late - a.late || b.avgLateMin - a.avgLateMin);
     await logAccess(req.portalUser, 'VIEW_LATE_REPORT', {});
+    res.json({ rows });
+  }),
+);
+
+// GET /no-activity?fromDate=&toDate=[&groupId=] — employees with at least one
+// working day in range where NOTHING was logged at all (not even idle time) —
+// as opposed to /late-report, which only looks at days they did show up.
+// Zero-row days mean either they were off, or the agent/installer on their PC
+// has a problem; "last seen" is the hint for telling those two apart. Reads
+// ActivitySummary (same table /summary uses) rather than raw events — a
+// summary row only ever exists for a day that had ≥1 event, and it's kept
+// fresh by the 5-minute rollup, so this is both cheap and current.
+router.get(
+  '/no-activity',
+  asyncHandler(async (req, res) => {
+    const empWhere = { ...scopeFor(req.portalUser), isActive: true };
+    const orgPick = providerOrgScope(req);
+    if (orgPick) empWhere.organisationId = orgPick;
+    if (req.query.groupId && ['PROVIDER_ADMIN', 'PROVIDER_SUPPORT', 'ORG_ADMIN', 'MANAGER'].includes(req.portalUser.role)) {
+      empWhere.groupId = req.query.groupId;
+    }
+    const employees = await prisma.monitoredEmployee.findMany({
+      where: empWhere,
+      select: { id: true, displayName: true, upn: true, organisationId: true, groupId: true, createdAt: true },
+    });
+    if (employees.length === 0) return res.json({ rows: [] });
+
+    const end = req.query.toDate ? dateOnly(req.query.toDate) : dateOnly(new Date());
+    const start = req.query.fromDate ? dateOnly(req.query.fromDate) : new Date(end);
+    if (!req.query.fromDate) start.setUTCDate(start.getUTCDate() - 6);
+    const dayCount = Math.round((end - start) / 86400000) + 1;
+    if (dayCount < 1 || dayCount > 92) return res.status(400).json({ error: 'Pick a range of up to ~3 months.' });
+
+    const empById = new Map(employees.map((e) => [e.id, e]));
+    const missing = await employeesWithNoActivity(employees, start, end);
+    const rows = missing.map((m) => ({
+      ...m,
+      displayName: empById.get(m.employeeId)?.displayName || empById.get(m.employeeId)?.upn || 'Unnamed',
+    })).sort((a, b) => b.missingCount - a.missingCount);
+
+    await logAccess(req.portalUser, 'VIEW_NO_ACTIVITY_REPORT', {});
     res.json({ rows });
   }),
 );
@@ -450,6 +492,25 @@ router.get(
       orderBy: { displayName: 'asc' },
     });
     res.json(employees);
+  }),
+);
+
+// GET /employees/:id — a single employee's own identity (name, group, company).
+// The employee detail page needs this independent of /summary or /timeline,
+// since those come back empty on a day with no tracked activity and would
+// otherwise leave the page with no name to show at all.
+router.get(
+  '/employees/:id',
+  asyncHandler(async (req, res) => {
+    const employee = await prisma.monitoredEmployee.findFirst({
+      where: { id: req.params.id, ...scopeFor(req.portalUser) },
+      include: {
+        group: { select: { id: true, name: true } },
+        organisation: { select: { id: true, name: true } },
+      },
+    });
+    if (!employee) return res.status(404).json({ error: 'Employee not found in your scope' });
+    res.json(employee);
   }),
 );
 

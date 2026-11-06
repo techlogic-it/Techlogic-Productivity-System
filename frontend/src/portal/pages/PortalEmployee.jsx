@@ -40,6 +40,16 @@ export default function PortalEmployee() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // The employee's own identity — fetched independently of /summary and
+  // /timeline, which come back empty (and so give no name to show) on a
+  // period/day with no tracked activity.
+  const [employee, setEmployee] = useState(null);
+  useEffect(() => {
+    portalApi.get(`/monitoring/employees/${id}`)
+      .then((r) => setEmployee(r.data))
+      .catch(() => setEmployee(null));
+  }, [id]);
+
   // KPI period (Active/Productive/Idle/Productivity above) — independent of the
   // single `date` below, which drives Apps & sites / Screenshots / Timeline (those
   // are inherently a day-at-a-time drill-down, not something to show a month of).
@@ -83,7 +93,7 @@ export default function PortalEmployee() {
       .catch(() => setScreenshots([]));
   }, [id, date]);
 
-  const name = period.employees?.[0]?.displayName || events[0]?.employee?.displayName || 'Employee';
+  const name = employee?.displayName || employee?.upn || period.employees?.[0]?.displayName || 'Employee';
   const t = period.total || {};
 
   // Optional time-of-day window — narrows the timeline + apps/sites to a period

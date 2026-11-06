@@ -4,7 +4,7 @@
 // own timezone, de-duped via the *SentOn markers on MonitoringSetting.
 
 import prisma from '../prisma.js';
-import { dateOnly } from './monitoring-rollup.js';
+import { dateOnly, employeesWithNoActivity } from './monitoring-rollup.js';
 import { sendEmail, emailConfigured } from './email.js';
 
 const WEEKDAY_NUM = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
@@ -60,7 +60,49 @@ async function buildDigest(orgId, fromStr, toStr) {
   return { total: { ...total, productivityPct: pct(total.productiveSec, total.activeSec, total.idleSec) }, employees };
 }
 
-function renderHtml({ orgName, periodLabel, total, employees }) {
+// Working days in [fromStr, toStr] with nothing logged at all — the installer
+// or agent may have stopped reporting (as opposed to a day genuinely worked,
+// which /late-report already covers). Capped to the 10 worst, so a company-wide
+// outage doesn't turn the email into an unreadable wall of names.
+async function buildNoActivityAlert(orgId, fromStr, toStr) {
+  const employees = await prisma.monitoredEmployee.findMany({
+    where: { organisationId: orgId, isActive: true },
+    select: { id: true, displayName: true, upn: true, organisationId: true, groupId: true, createdAt: true },
+  });
+  if (employees.length === 0) return [];
+  const missing = await employeesWithNoActivity(employees, dateOnly(fromStr), dateOnly(toStr));
+  const empById = new Map(employees.map((e) => [e.id, e]));
+  return missing
+    .map((m) => ({ ...m, name: empById.get(m.employeeId)?.displayName || empById.get(m.employeeId)?.upn || 'Unnamed' }))
+    .sort((a, b) => b.missingCount - a.missingCount)
+    .slice(0, 10);
+}
+
+const fmtLastSeenShort = (iso) => {
+  if (!iso) return 'never';
+  const d = new Date(iso);
+  const days = Math.floor((dateOnly(new Date()) - dateOnly(d)) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  return `${days} days ago`;
+};
+
+function renderNoActivityHtml(noActivity) {
+  if (!noActivity.length) return '';
+  const items = noActivity.map((e) => `
+    <tr>
+      <td style="padding:6px 10px;border-top:1px solid #fde68a">${escapeHtml(e.name)}</td>
+      <td style="padding:6px 10px;border-top:1px solid #fde68a;text-align:right">${e.missingCount} of ${e.workingDays} working day${e.workingDays === 1 ? '' : 's'}</td>
+      <td style="padding:6px 10px;border-top:1px solid #fde68a;text-align:right;color:#92400e">last seen ${fmtLastSeenShort(e.lastSeenAt)}</td>
+    </tr>`).join('');
+  return `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:16px;margin-bottom:16px">
+    <div style="font-weight:700;color:#92400e;margin-bottom:4px">⚠ No activity recorded</div>
+    <div style="color:#92400e;font-size:13px;margin-bottom:10px">These people logged nothing at all on one or more working days — could be a day off, or the agent/installer on their PC may have stopped working.</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">${items}</table>
+  </div>`;
+}
+
+function renderHtml({ orgName, periodLabel, total, employees, noActivity }) {
   const rows = employees.map((e) => `
     <tr>
       <td style="padding:6px 10px;border-top:1px solid #eee">${escapeHtml(e.name)}</td>
@@ -82,6 +124,7 @@ function renderHtml({ orgName, periodLabel, total, employees }) {
         </tr>
       </table>
     </div>
+    ${renderNoActivityHtml(noActivity || [])}
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden">
       <table style="width:100%;border-collapse:collapse;font-size:14px">
         <thead><tr style="background:#f9fafb;color:#6b7280;font-size:12px;text-transform:uppercase">
@@ -105,9 +148,14 @@ function escapeHtml(s) {
   return String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
-function plainText({ orgName, periodLabel, total, employees }) {
+function plainText({ orgName, periodLabel, total, employees, noActivity }) {
   const lines = [`${orgName} — ${periodLabel}`, '',
     `Active ${fmtDur(total.activeSec)} · Productive ${fmtDur(total.productiveSec)} · Productivity ${total.productivityPct}% · Overtime ${fmtDur(total.overtimeSec)}`, ''];
+  if ((noActivity || []).length) {
+    lines.push('⚠ No activity recorded (day off, or agent/installer may have stopped working):');
+    for (const e of noActivity) lines.push(`  ${e.name}: missing ${e.missingCount} of ${e.workingDays} working days, last seen ${fmtLastSeenShort(e.lastSeenAt)}`);
+    lines.push('');
+  }
   for (const e of employees) lines.push(`${e.name}: ${fmtDur(e.activeSec)} active, ${fmtDur(e.productiveSec)} productive (${e.productivityPct}%)`);
   if (!employees.length) lines.push('No activity recorded in this period.');
   return lines.join('\n');
@@ -141,10 +189,14 @@ export async function sendDigest({ org, setting, type, to, skipEmpty = false }) 
     periodLabel = fmtDate(fromStr);
   }
   const digest = await buildDigest(org.id, fromStr, toStr);
-  if (skipEmpty && digest.total.activeSec === 0 && digest.employees.length === 0) {
+  const noActivity = await buildNoActivityAlert(org.id, fromStr, toStr);
+  // Only skip a truly empty period (e.g. a weekend) — a company-wide outage
+  // (everyone's agent down, so total activity is also zero) is exactly the
+  // case this alert exists to catch, so it must still go out.
+  if (skipEmpty && digest.total.activeSec === 0 && digest.employees.length === 0 && noActivity.length === 0) {
     return { sent: false, mode: 'skipped-empty' };
   }
-  const model = { orgName: org.name, periodLabel, ...digest };
+  const model = { orgName: org.name, periodLabel, ...digest, noActivity };
   const recipients = to ? (Array.isArray(to) ? to : [to]) : await recipientsFor(org.id, setting);
   const subject = `${type === 'weekly' ? 'Weekly' : 'Daily'} productivity — ${org.name} — ${periodLabel}`;
   return sendEmail({ to: recipients, subject, html: renderHtml(model), text: plainText(model) });

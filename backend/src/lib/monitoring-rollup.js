@@ -139,6 +139,64 @@ export async function officeConfigFor(organisationId, groupId) {
   return officeConfig(applyGroupOverrides(settings, group));
 }
 
+// Shared by the "Not seen" portal report and the daily/weekly digest email:
+// which of `employees` had a working day in [start, end] (inclusive, UTC
+// calendar dates) with NOTHING logged at all — not even idle time. Reads
+// ActivitySummary (kept fresh by the 5-minute rollup; a row only ever exists
+// for a day that had ≥1 raw event), so this never scans raw ActivityEvent.
+// `employees` needs id, organisationId, groupId, createdAt. Returns one entry
+// per employee who has ≥1 missing working day; employees with none are
+// omitted entirely.
+export async function employeesWithNoActivity(employees, start, end) {
+  if (employees.length === 0) return [];
+
+  const summaries = await prisma.activitySummary.findMany({
+    where: { employeeId: { in: employees.map((e) => e.id) }, summaryDate: { gte: start, lte: end } },
+    select: { employeeId: true, summaryDate: true },
+  });
+  const seenByEmp = new Map();
+  for (const s of summaries) {
+    const set = seenByEmp.get(s.employeeId) || new Set();
+    set.add(s.summaryDate.toISOString().slice(0, 10));
+    seenByEmp.set(s.employeeId, set);
+  }
+
+  const cfgCache = new Map();
+  const cfgFor = async (orgId, groupId) => {
+    const key = `${orgId || '__none__'}|${groupId || ''}`;
+    if (!cfgCache.has(key)) cfgCache.set(key, await officeConfigFor(orgId, groupId));
+    return cfgCache.get(key);
+  };
+
+  const today = dateOnly(new Date());
+  const out = [];
+  for (const emp of employees) {
+    const cfg = await cfgFor(emp.organisationId, emp.groupId);
+    const seen = seenByEmp.get(emp.id) || new Set();
+    const joined = dateOnly(emp.createdAt);
+    const missing = [];
+    let workingDays = 0;
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      if (d > today || d < joined) continue; // never flag the future, or before they were enrolled
+      const noon = new Date(d.getTime() + 12 * 60 * 60 * 1000); // avoid timezone date-boundary shift
+      if (!cfg.days.has(localTimeInfo(noon, cfg.timezone).dayNum)) continue; // non-working day
+      workingDays += 1;
+      const key = d.toISOString().slice(0, 10);
+      if (!seen.has(key)) missing.push(key);
+    }
+    if (missing.length === 0) continue;
+
+    const last = await prisma.activityEvent.findFirst({
+      where: { employeeId: emp.id },
+      orderBy: { startTime: 'desc' },
+      select: { startTime: true },
+    });
+
+    out.push({ employeeId: emp.id, workingDays, missingDays: missing, missingCount: missing.length, lastSeenAt: last?.startTime || null });
+  }
+  return out;
+}
+
 // Build a map of organisationId → officeConfig for the rollup, plus the default
 // config used for employees whose org hasn't customised office hours (and for the
 // internal build, where organisationId is null). byGroup holds the config for
