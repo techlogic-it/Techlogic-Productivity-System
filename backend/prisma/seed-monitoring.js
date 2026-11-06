@@ -60,15 +60,57 @@ const APPS = [
 ];
 
 // Title/page keyword rules for browser-based sites (matched in the window title).
+// These apply no matter how a company has classified the browser itself —
+// see the BROWSER_PROCESSES carve-out in lib/monitoring-rollup.js.
 const TITLE_RULES = [
+  // Video / streaming
   { keyword: 'youtube', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
   { keyword: 'netflix', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
   { keyword: 'twitch', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'disney+', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'prime video', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'iplayer', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'hulu', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'max.com', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'paramount+', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'now tv', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'britbox', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'dailymotion', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  // Music
+  { keyword: 'spotify', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'soundcloud', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'apple music', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'amazon music', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'deezer', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'tidal', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'pandora', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  // Social media
   { keyword: 'facebook', category: 'SOCIAL', weight: 'NON_PRODUCTIVE' },
   { keyword: 'instagram', category: 'SOCIAL', weight: 'NON_PRODUCTIVE' },
   { keyword: 'tiktok', category: 'SOCIAL', weight: 'NON_PRODUCTIVE' },
   { keyword: 'reddit', category: 'SOCIAL', weight: 'NON_PRODUCTIVE' },
   { keyword: 'twitter', category: 'SOCIAL', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'snapchat', category: 'SOCIAL', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'pinterest', category: 'SOCIAL', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'messenger', category: 'SOCIAL', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'whatsapp', category: 'SOCIAL', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'threads', category: 'SOCIAL', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'tumblr', category: 'SOCIAL', weight: 'NON_PRODUCTIVE' },
+  // Games (browser-based / cloud)
+  { keyword: 'roblox', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'poki.com', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'miniclip', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'crazygames', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'coolmathgames', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'friv.com', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'kongregate', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'armorgames', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'itch.io', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'y8.com', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'gamejolt', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'chess.com', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'minecraft', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
+  { keyword: 'fortnite', category: 'ENTERTAINMENT', weight: 'NON_PRODUCTIVE' },
 ];
 
 async function main() {

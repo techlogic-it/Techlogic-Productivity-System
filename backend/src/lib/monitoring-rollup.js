@@ -33,13 +33,24 @@ export async function getTitleRules() {
   return rules.sort((a, b) => b.keyword.length - a.keyword.length);
 }
 
+// Browsers are one process for every site/tab — unlike any other app, "what
+// it's classified as" has to come from the page title, not the process, no
+// matter how the company has classified the browser itself. Keep in sync with
+// the BROWSERS/BROWSER_PROCESSES sets in the frontend (PortalEmployee.jsx etc.)
+// used for the matching display-label logic.
+const BROWSER_PROCESSES = new Set(['MSEDGE.EXE', 'CHROME.EXE', 'FIREFOX.EXE', 'BRAVE.EXE', 'OPERA.EXE', 'IEXPLORE.EXE', 'ARC.EXE', 'VIVALDI.EXE']);
+
 // Resolve an event's category/weight from the app catalogue + title rules.
 // A PRODUCTIVE app keeps its classification (so a leisure keyword in a code
-// file name doesn't flag dev work); otherwise a matching title rule wins, then
-// the app catalogue, then Uncategorised/Neutral.
+// file name doesn't flag dev work) UNLESS it's a browser — a browser marked
+// Productive (common, since most work happens in one) still has to defer to
+// the page title, or every YouTube/social-media tab would silently inherit
+// the browser's own Productive rating instead of being caught. Otherwise a
+// matching title rule wins, then the app catalogue, then Uncategorised/Neutral.
 export function resolveClassification(processName, windowTitle, appByProc, titleRules) {
-  const app = appByProc.get((processName || '').toUpperCase());
-  if (app && app.weight === 'PRODUCTIVE') {
+  const proc = (processName || '').toUpperCase();
+  const app = appByProc.get(proc);
+  if (app && app.weight === 'PRODUCTIVE' && !BROWSER_PROCESSES.has(proc)) {
     return { category: app.category, weight: app.weight, displayName: app.displayName };
   }
   const title = (windowTitle || '').toLowerCase();
