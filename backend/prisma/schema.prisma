@@ -425,6 +425,10 @@ model OrgTitleRule {
   organisation   Organisation       @relation(fields: [organisationId], references: [id])
   keyword        String // lower-case
   category       AppCategory        @default(SOCIAL)
+  // When filed under a company's own custom category, its name lives here
+  // (category stays whatever it was, effectively ignored). Mirrors
+  // OrgAppClassification.customCategory — effective category = customCategory || category.
+  customCategory String?
   weight         ProductivityWeight @default(NON_PRODUCTIVE)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt

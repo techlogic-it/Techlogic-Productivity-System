@@ -735,8 +735,12 @@ router.delete('/org-categories/:id', requirePortalRole('ORG_ADMIN'), asyncHandle
   const orgId = targetOrgId(req);
   const cat = await prisma.orgCategory.findFirst({ where: { id: req.params.id, organisationId: orgId } });
   if (!cat) return res.status(404).json({ error: 'Category not found' });
-  // Un-file any apps using it (back to Uncategorised; their weight is kept).
+  // Un-file any apps/title rules using it (back to Uncategorised; weight is kept).
   await prisma.orgAppClassification.updateMany({
+    where: { organisationId: orgId, customCategory: cat.name },
+    data: { customCategory: null, category: 'UNCATEGORISED' },
+  });
+  await prisma.orgTitleRule.updateMany({
     where: { organisationId: orgId, customCategory: cat.name },
     data: { customCategory: null, category: 'UNCATEGORISED' },
   });
@@ -753,9 +757,21 @@ router.delete('/apps/classify/:processName', requirePortalRole('ORG_ADMIN'), asy
 }));
 
 // Title rules: this company's rules plus the read-only global defaults.
+// `category` may be a built-in AppCategory OR one of this company's custom
+// category names (same rule as /apps/classify) — returns the {category,
+// customCategory} pair to store, or null if it matches neither.
+async function resolveTitleCategory(orgId, category) {
+  if (APP_CATEGORIES.includes(category)) return { category, customCategory: null };
+  const custom = await prisma.orgCategory.findUnique({ where: { organisationId_name: { organisationId: orgId, name: category } } });
+  if (!custom) return null;
+  return { category: 'UNCATEGORISED', customCategory: custom.name, defaultWeight: custom.weight };
+}
+
 router.get('/title-rules', asyncHandler(async (req, res) => {
   const orgId = targetOrgId(req);
-  const orgRules = orgId ? await prisma.orgTitleRule.findMany({ where: { organisationId: orgId }, orderBy: { keyword: 'asc' } }) : [];
+  const orgRulesRaw = orgId ? await prisma.orgTitleRule.findMany({ where: { organisationId: orgId }, orderBy: { keyword: 'asc' } }) : [];
+  // Effective category folds in a custom category name, same as GET /apps.
+  const orgRules = orgRulesRaw.map((r) => ({ ...r, category: r.customCategory || r.category }));
   const globalRules = await prisma.titleRule.findMany({ orderBy: { keyword: 'asc' } });
   res.json({ orgRules, globalRules });
 }));
@@ -765,10 +781,13 @@ router.post('/title-rules', requirePortalRole('ORG_ADMIN'), asyncHandler(async (
   if (!orgId) return res.status(400).json({ error: 'organisationId is required' });
   const keyword = String(req.body?.keyword || '').trim().toLowerCase();
   if (!keyword) return res.status(400).json({ error: 'keyword is required' });
-  const category = APP_CATEGORIES.includes(req.body?.category) ? req.body.category : 'SOCIAL';
-  const weight = WEIGHTS.includes(req.body?.weight) ? req.body.weight : 'NON_PRODUCTIVE';
+  const resolved = await resolveTitleCategory(orgId, String(req.body?.category || 'SOCIAL'));
+  if (!resolved) return res.status(400).json({ error: 'Invalid category' });
+  const weight = WEIGHTS.includes(req.body?.weight) ? req.body.weight : (resolved.defaultWeight || 'NON_PRODUCTIVE');
   try {
-    const row = await prisma.orgTitleRule.create({ data: { organisationId: orgId, keyword, category, weight } });
+    const row = await prisma.orgTitleRule.create({
+      data: { organisationId: orgId, keyword, category: resolved.category, customCategory: resolved.customCategory, weight },
+    });
     res.status(201).json(row);
   } catch (e) {
     if (e.code === 'P2002') return res.status(409).json({ error: 'That keyword already exists for this company' });
@@ -782,7 +801,12 @@ router.patch('/title-rules/:id', requirePortalRole('ORG_ADMIN'), asyncHandler(as
   if (!target) return res.status(404).json({ error: 'Rule not found' });
   const data = {};
   if (req.body?.keyword !== undefined) data.keyword = String(req.body.keyword).trim().toLowerCase();
-  if (req.body?.category !== undefined && APP_CATEGORIES.includes(req.body.category)) data.category = req.body.category;
+  if (req.body?.category !== undefined) {
+    const resolved = await resolveTitleCategory(orgId, String(req.body.category));
+    if (!resolved) return res.status(400).json({ error: 'Invalid category' });
+    data.category = resolved.category;
+    data.customCategory = resolved.customCategory;
+  }
   if (req.body?.weight !== undefined && WEIGHTS.includes(req.body.weight)) data.weight = req.body.weight;
   const row = await prisma.orgTitleRule.update({ where: { id: target.id }, data });
   res.json(row);

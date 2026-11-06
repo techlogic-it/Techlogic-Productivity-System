@@ -375,7 +375,7 @@ export default function PortalSettings() {
                   <tr key={r.id} className="border-b border-gray-50">
                     <td className="py-1.5 font-mono text-gray-700">{r.keyword}</td>
                     <td className="py-1.5">
-                      <select value={r.category} onChange={(e) => patchRule(r.id, 'category', e.target.value)} className={input}>{CATEGORIES.map((c) => <option key={c} value={c}>{label(c)}</option>)}</select>
+                      <select value={r.category} onChange={(e) => patchRule(r.id, 'category', e.target.value)} className={input}>{categoryOptions()}</select>
                     </td>
                     <td className="py-1.5">
                       <select value={r.weight} onChange={(e) => patchRule(r.id, 'weight', e.target.value)} className={`${input} ${WEIGHT_COLOUR[r.weight]}`}>{WEIGHTS.map((w) => <option key={w} value={w}>{label(w)}</option>)}</select>
@@ -388,7 +388,7 @@ export default function PortalSettings() {
             </table>
             <div className="grid grid-cols-4 gap-2 items-end border-t border-gray-100 pt-3">
               <input placeholder="keyword e.g. youtube" value={newRule.keyword} onChange={(e) => setNewRule({ ...newRule, keyword: e.target.value })} className={input} />
-              <select value={newRule.category} onChange={(e) => setNewRule({ ...newRule, category: e.target.value })} className={input}>{CATEGORIES.map((c) => <option key={c} value={c}>{label(c)}</option>)}</select>
+              <select value={newRule.category} onChange={(e) => setNewRule({ ...newRule, category: e.target.value })} className={input}>{categoryOptions()}</select>
               <select value={newRule.weight} onChange={(e) => setNewRule({ ...newRule, weight: e.target.value })} className={input}>{WEIGHTS.map((w) => <option key={w} value={w}>{label(w)}</option>)}</select>
               <button onClick={addRule} className="rounded-lg bg-teal-600 text-white px-3 py-1.5 text-sm">Add rule</button>
             </div>

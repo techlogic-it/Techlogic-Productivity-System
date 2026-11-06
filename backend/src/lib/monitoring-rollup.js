@@ -79,9 +79,12 @@ export async function effectiveClassification(organisationId) {
     for (const a of ov) byProc.set(a.processName.toUpperCase(), { ...a, category: a.customCategory || a.category });
     const orules = await prisma.orgTitleRule.findMany({
       where: { organisationId },
-      select: { keyword: true, weight: true, category: true },
+      select: { keyword: true, weight: true, category: true, customCategory: true },
     });
-    if (orules.length) rules = [...orules, ...rules].sort((a, b) => (b.keyword?.length || 0) - (a.keyword?.length || 0));
+    // Effective category folds in a company's custom category name (if set),
+    // same as the app-classification override above.
+    const effOrules = orules.map((r) => ({ ...r, category: r.customCategory || r.category }));
+    if (effOrules.length) rules = [...effOrules, ...rules].sort((a, b) => (b.keyword?.length || 0) - (a.keyword?.length || 0));
   }
   return { byProc, titleRules: rules };
 }
